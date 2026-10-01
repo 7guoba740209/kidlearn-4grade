@@ -1,0 +1,460 @@
+/* ================= 公共工具：存储 / 提示 / 音效 / 鼓励特效 / 图片处理 ================= */
+(function () {
+  const NS = 'kidlearn_v1_';
+
+  /* ---------- 本地存储（模拟云盘 / 积分 / 进度） ---------- */
+  const DB = {
+    get(k, def) {
+      try { const v = localStorage.getItem(NS + k); return v == null ? def : JSON.parse(v); }
+      catch (e) { return def; }
+    },
+    set(k, v) {
+      try { localStorage.setItem(NS + k, JSON.stringify(v)); return true; }
+      catch (e) { UI.toast('手机存储空间不够啦，先删几张旧照片吧～'); return false; }
+    },
+    del(k) { localStorage.removeItem(NS + k); }
+  };
+
+  /* ---------- 小工具 ---------- */
+  const UI = {
+    toast(msg, ms) {
+      const box = document.getElementById('toast');
+      const el = document.createElement('div');
+      el.className = 'toast'; el.textContent = msg;
+      box.appendChild(el);
+      setTimeout(() => el.remove(), ms || 1800);
+    },
+    $(s, r) { return (r || document).querySelector(s); },
+    $$(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); },
+    esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); },
+    on(sel, ev, fn) {
+      UI.$$(sel).forEach(el => el.addEventListener(ev, e => fn.call(el, e, el)));
+    },
+    // 用于延迟绑定：view.addEventListener('click', UI.delegate('[data-go]', fn))
+    delegate(sel, fn) {
+      return function (e) {
+        const t = e.target.closest(sel);
+        if (t) fn.call(t, e, t);
+      };
+    },
+    now() {
+      const d = new Date(), p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    },
+    shuffle(a) {
+      a = a.slice();
+      for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+      return a;
+    }
+  };
+
+  /* ---------- 音效（纯 WebAudio，不依赖任何音频文件） ---------- */
+  let ac = null;
+  function tone(freq, dur, type, vol) {
+    try {
+      ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = type || 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(vol || 0.14, ac.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + (dur || 0.18));
+      o.connect(g); g.connect(ac.destination);
+      o.start(); o.stop(ac.currentTime + (dur || 0.18));
+    } catch (e) { }
+  }
+  const SFX = {
+    right() { tone(784, .12, 'sine', .16); setTimeout(() => tone(1046, .22, 'sine', .16), 110); },
+    wrong() { tone(220, .22, 'triangle', .12); },
+    tap() { tone(660, .07, 'square', .06); },
+    win() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, .25, 'sine', .15), i * 110)); }
+  };
+
+  /* ---------- 朗读（Web Speech API，离线可用、免登录） ---------- */
+  const Say = {
+    ok: 'speechSynthesis' in window,
+    /* 英文朗读：词组（moon cake / sports day / New Year）按空格拆词逐个排队朗读 */
+    en(word, rate) {
+      if (!Say.ok) { UI.toast('这台设备暂时不支持朗读哦'); return false; }
+      try {
+        speechSynthesis.cancel();
+        const r = rate || (window.APP_CONFIG && APP_CONFIG.EN_SPEAK_RATE) || .8;
+        const t = String(word == null ? '' : word).trim();
+        if (!t) return false;
+        t.split(/\s+/).filter(Boolean).forEach(p => {
+          const u = new SpeechSynthesisUtterance(p);
+          u.lang = 'en-US'; u.rate = r;
+          speechSynthesis.speak(u);
+        });
+        return true;
+      } catch (e) { return false; }
+    },
+    stop() { try { speechSynthesis.cancel(); } catch (e) { } }
+  };
+
+  /* ---------- 中文朗读器（逐页/逐句队列 + 高亮回调） ----------
+   *  设计要点：
+   *  1) 每一步只读一个"单位"，onstart/onend 驱动高亮，不依赖 boundary 事件
+   *     （SpeechSynthesis 的 boundary 在中文下各家浏览器支持极差）
+   *  2) 单位既可以是整段（paged=true，适合屏幕只显示一页看图朗读），
+   *     也可以是句（适合整篇随文高亮）
+   *  3) 用队列 + onend 串联，规避部分浏览器读长文本会自动截断
+   * -------------------------------------------------------- */
+  const TTS = {
+    ok: 'speechSynthesis' in window,
+    q: [], i: 0, stopped: true, paused: false, at: 0,
+    onEnd: null, onPart: null, onStep: null,
+
+    voice() {
+      if (!TTS.ok) return null;
+      const vs = speechSynthesis.getVoices() || [];
+      return vs.find(v => /zh[-_]CN/i.test(v.lang)) ||
+        vs.find(v => /^zh/i.test(v.lang)) ||
+        vs.find(v => /Chinese|Huihui|Yaoyao|Xiaoxiao|Tingting/i.test(v.name)) || null;
+    },
+
+    /* 按行切分，保留原始行结构（高亮要跟屏幕上的段落一一对应） */
+    splitLines(t) {
+      return String(t == null ? '' : t).replace(/\r/g, '')
+        .split('\n').map(s => s.trim()).filter(s => s.length);
+    },
+
+    /* 句切分：一句话一个单位，最长的也不再切（超长会导致高亮停留过久，故上限120字） */
+    splitSentences(t) {
+      const out = [];
+      TTS.splitLines(t).forEach(line => {
+        if (line.length <= 26) { out.push(line); return; }
+        let buf = '';
+        for (const ch of line) {
+          buf += ch;
+          if ('。！？；!?…'.indexOf(ch) >= 0) { out.push(buf); buf = ''; }
+          else if (buf.length >= 120) { out.push(buf); buf = ''; }
+        }
+        if (buf.trim()) out.push(buf.trim());
+      });
+      return out;
+    },
+
+    /* play(units, opt)
+     *   units : 字符串数组（每个元素是一个朗读单位）
+     *   opt.onStep(i, n, unit) 第 i 个单位开始朗读
+     *   opt.onEnd()
+     */
+    play(text, opt) {
+      if (!TTS.ok) { UI.toast('这台设备暂时不支持朗读哦'); return false; }
+      opt = opt || {};
+      const cfg = (window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {};
+      let units = opt.units;
+      if (!units) units = opt.paged ? TTS.splitLines(text) : TTS.splitSentences(text);
+      units = (units || []).filter(s => String(s).trim().length);
+      TTS.stop();
+      if (!units.length) { UI.toast('这课还没有课文内容哦'); return false; }
+      TTS.q = units;
+      TTS.i = 0; TTS.at = -1; TTS.stopped = false; TTS.paused = false;
+      TTS.onEnd = opt.onEnd || null;
+      TTS.onStep = opt.onStep || null;
+      TTS.onPart = opt.onPart || null;
+      TTS.rate = opt.rate || cfg.TTS_RATE || .85;
+      TTS.pitch = opt.pitch || cfg.TTS_PITCH || 1.05;
+      TTS.next();
+      return true;
+    },
+
+    next() {
+      if (TTS.stopped) return;
+      if (TTS.i >= TTS.q.length) {
+        TTS.stopped = true;
+        if (TTS.onStep) TTS.onStep(-1, TTS.q.length, '');
+        if (TTS.onEnd) TTS.onEnd();
+        return;
+      }
+      try {
+        const unit = TTS.q[TTS.i];
+        const u = new SpeechSynthesisUtterance(unit);
+        u.lang = 'zh-CN';
+        const v = TTS.voice(); if (v) u.voice = v;
+        u.rate = TTS.rate; u.pitch = TTS.pitch;
+        const k = TTS.i;
+        u.onstart = () => { TTS.at = k; if (TTS.onStep) TTS.onStep(k, TTS.q.length, unit); };
+        u.onend = () => { TTS.i++; setTimeout(() => TTS.next(), 60); };
+        u.onerror = () => { TTS.i++; setTimeout(() => TTS.next(), 120); };
+        speechSynthesis.speak(u);
+        // 兜底：个别浏览器不触发 onstart，延迟给一次高亮
+        setTimeout(() => {
+          if (!TTS.stopped && TTS.i === k && TTS.at !== k) {
+            TTS.at = k; if (TTS.onStep) TTS.onStep(k, TTS.q.length, unit);
+          }
+        }, 120);
+      } catch (e) { TTS.stopped = true; }
+    },
+
+    pause() {
+      if (!TTS.ok || TTS.stopped) return;
+      TTS.paused = true;
+      try { speechSynthesis.pause(); } catch (e) { }
+    },
+    resume() {
+      if (!TTS.ok || TTS.stopped) return;
+      TTS.paused = false;
+      try { speechSynthesis.resume(); } catch (e) { }
+    },
+    toggle() { TTS.paused ? TTS.resume() : TTS.pause(); return TTS.paused; },
+    stop() {
+      TTS.stopped = true; TTS.paused = false; TTS.q = []; TTS.i = 0; TTS.at = -1;
+      try { speechSynthesis.cancel(); } catch (e) { }
+    },
+    get busy() { return TTS.ok && !TTS.stopped; }
+  };
+  if (TTS.ok) {
+    try { speechSynthesis.getVoices(); } catch (e) { }
+    speechSynthesis.onvoiceschanged = () => { try { speechSynthesis.getVoices(); } catch (e) { } };
+  }
+
+  /* ---------- 抖音：免登录内嵌播放 ---------- */
+  const Douyin = {
+    /* 官方嵌入播放器（开放平台接口，无需申请权限，公开视频免登录可播） */
+    embedUrl(vid, autoplay) {
+      return 'https://open.douyin.com/player/video?vid=' + encodeURIComponent(vid) +
+        '&autoplay=' + (autoplay ? '1' : '0');
+    },
+    /* 从各种写法里提取视频ID：纯ID / 完整链接 / modal_id / vid= / 对象 */
+    parseVid(v) {
+      if (!v) return '';
+      if (typeof v === 'object') return Douyin.parseVid(v.vid || v.url || '');
+      const s = String(v).trim();
+      let m = s.match(/video\/(\d{8,})/); if (m) return m[1];
+      m = s.match(/modal_id=(\d{8,})/); if (m) return m[1];
+      m = s.match(/[?&]vid=(\d{8,})/); if (m) return m[1];
+      m = s.match(/^(\d{8,})$/); if (m) return m[1];
+      return '';   // 短链 v.douyin.com/xxx 里没有数字ID，无法内嵌
+    },
+    /* 原始跳转地址（兜底：在抖音里看） */
+    pageUrl(v, kw) {
+      if (!v) return 'https://www.douyin.com/search/' + encodeURIComponent(kw || '课文朗读');
+      if (typeof v === 'object') return v.url || v.page || Douyin.pageUrl(v.vid, kw);
+      const s = String(v).trim();
+      if (/^https?:/i.test(s)) return s;
+      if (/^\d{8,}$/.test(s)) return 'https://www.douyin.com/video/' + s;
+      return 'https://www.douyin.com/search/' + encodeURIComponent(kw || '课文朗读');
+    }
+  };
+
+  /* ---------- 彩纸 / 星星鼓励特效（Canvas2D） ---------- */
+  const FX = {
+    parts: [], running: false,
+    canvas: null, ctx: null, w: 0, h: 0,
+    init() {
+      FX.canvas = document.getElementById('fx');
+      if (!FX.canvas) return;
+      FX.ctx = FX.canvas.getContext('2d');
+      FX.resize();
+      window.addEventListener('resize', FX.resize);
+    },
+    resize() {
+      if (!FX.canvas) return;
+      FX.w = FX.canvas.width = window.innerWidth;
+      FX.h = FX.canvas.height = window.innerHeight;
+    },
+    burst(n, colors) {
+      if (!FX.ctx) FX.init();
+      if (!FX.ctx) return;
+      const cs = colors || ['#FF8A3D', '#3D8BFF', '#35C77E', '#FFC93D', '#FF6B9D', '#A66BFF'];
+      for (let i = 0; i < (n || 60); i++) {
+        FX.parts.push({
+          x: FX.w / 2 + (Math.random() - .5) * 120,
+          y: FX.h / 2 - 40,
+          vx: (Math.random() - .5) * 11,
+          vy: Math.random() * -12 - 3,
+          s: Math.random() * 8 + 5,
+          c: cs[Math.floor(Math.random() * cs.length)],
+          r: Math.random() * Math.PI, vr: (Math.random() - .5) * .3,
+          life: 1
+        });
+      }
+      if (!FX.running) { FX.running = true; requestAnimationFrame(FX.loop); }
+    },
+    loop() {
+      const c = FX.ctx;
+      c.clearRect(0, 0, FX.w, FX.h);
+      FX.parts = FX.parts.filter(p => p.life > 0 && p.y < FX.h + 40);
+      FX.parts.forEach(p => {
+        p.vy += .32; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.life -= .008;
+        c.save(); c.translate(p.x, p.y); c.rotate(p.r);
+        c.globalAlpha = Math.max(0, p.life);
+        c.fillStyle = p.c;
+        c.fillRect(-p.s / 2, -p.s / 2, p.s, p.s * .7);
+        c.restore();
+      });
+      if (FX.parts.length) requestAnimationFrame(FX.loop);
+      else { FX.running = false; c.clearRect(0, 0, FX.w, FX.h); }
+    }
+  };
+
+  /* ---------- 图片：压缩后转 DataURL ---------- */
+  const Img = {
+    fileToDataURL(file, maxSide) {
+      return new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => {
+          const image = new Image();
+          image.onload = () => {
+            let { width: w, height: h } = image;
+            const m = maxSide || 800;
+            if (Math.max(w, h) > m) { const k = m / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
+            const cv = document.createElement('canvas');
+            cv.width = w; cv.height = h;
+            cv.getContext('2d').drawImage(image, 0, 0, w, h);
+            resolve(cv.toDataURL('image/jpeg', 0.72));
+          };
+          image.onerror = reject;
+          image.src = fr.result;
+        };
+        fr.onerror = reject;
+        fr.readAsDataURL(file);
+      });
+    }
+  };
+
+  /* ---------- 通用弹层 ---------- */
+  const Modal = {
+    el: null,
+    open(html, opt) {
+      opt = opt || {};
+      Modal.close();
+      const mask = document.createElement('div');
+      mask.className = 'modal-mask';
+      mask.innerHTML = `<div class="modal ${opt.cls || ''}">${html}</div>`;
+      document.body.appendChild(mask);
+      Modal.el = mask;
+      requestAnimationFrame(() => mask.classList.add('on'));
+      mask.addEventListener('click', e => {
+        if (e.target === mask && opt.maskClose !== false) Modal.close();
+      });
+      UI.$$('[data-close]', mask).forEach(b => b.onclick = () => Modal.close());
+      document.body.style.overflow = 'hidden';
+      return mask;
+    },
+    close() {
+      if (Modal.el) { Modal.el.remove(); Modal.el = null; }
+      document.body.style.overflow = '';
+      TTS.stop();
+    }
+  };
+
+  /* ---------- 课文朗读播放器：抖音内嵌（免登录）+ 本机朗读兜底 ---------- */
+  const Player = {
+    open(o) {
+      o = o || {};
+      const cfg = (window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {};
+      const vid = Douyin.parseVid(o.vid);
+      const pageUrl = Douyin.pageUrl(o.vid || o.url, o.kw || ((o.title || '') + ' 课文朗读').trim());
+      const title = o.title || '课文朗读';
+      const tip = (o.vid && typeof o.vid === 'object' && o.vid.tip) || o.tip || '';
+
+      // 竖版 9:16，最大不超过屏幕
+      const winW = window.innerWidth, winH = window.innerHeight;
+      let w = Math.min(440, winW - 28), h = Math.round(w * 16 / 9);
+      const maxH = Math.round(winH * 0.56);
+      if (h > maxH) { h = maxH; w = Math.round(h * 9 / 16); }
+
+      const hasVid = !!vid;
+      const autoplay = cfg.AUTOPLAY !== false;
+      const showDy = cfg.SHOW_DOUYIN_BTN !== false;
+
+      const html = `
+        <div class="play-head">
+          <div class="play-title">🎧 ${UI.esc(title)}</div>
+          <button class="play-x" data-close aria-label="关闭">✕</button>
+        </div>
+        ${hasVid ? `
+          <div class="play-stage" style="width:${w}px;height:${h}px">
+            <iframe src="${Douyin.embedUrl(vid, autoplay)}"
+              referrerpolicy="unsafe-url" allow="autoplay; encrypted-media; fullscreen"
+              allowfullscreen scrolling="no" frameborder="0"></iframe>
+          </div>
+          ${tip ? `<div class="play-tip">${UI.esc(tip)}</div>` : ''}
+        ` : `
+          <div class="play-empty" style="width:${Math.max(240, w)}px">
+            <div class="pe-ico">📢</div>
+            <div class="pe-t">这课还没录朗读视频</div>
+            <div class="pe-s">没关系～ 点下面的大按钮，<br>我直接把课文读给你听</div>
+          </div>
+        `}
+        <div class="play-bar">
+          <button class="pbtn ${hasVid ? 'ghost' : 'bg-pk big'}" id="pRead">
+            <span>🔊</span><b>${hasVid ? '跟着读一遍' : '点我听朗读'}</b>
+          </button>
+          <button class="pbtn ghost" id="pPause"><span>⏸</span><b>暂停</b></button>
+        </div>
+        <div class="play-stat" id="pStat">${hasVid ? '视频来自抖音，不用登录就能看；没自动播就点一下画面' : ''}</div>
+        ${showDy ? `<a class="play-link" id="pDouyin" href="${UI.esc(pageUrl)}" target="_blank" rel="noopener">在抖音里看 ›</a>` : ''}
+      `;
+
+      const mask = Modal.open(html, { cls: 'modal-play' });
+      const btnR = mask.querySelector('#pRead');
+      const btnP = mask.querySelector('#pPause');
+      const stat = mask.querySelector('#pStat');
+      let reading = false;
+
+      const setStat = s => { if (stat) stat.textContent = s; };
+      const setReadBtn = (label) => { btnR.querySelector('b').textContent = label; };
+
+      btnR.onclick = () => {
+        SFX.tap();
+        if (reading) {
+          TTS.stop(); reading = false;
+          setReadBtn(hasVid ? '跟着读一遍' : '点我听朗读');
+          setStat(hasVid ? '视频来自抖音，不用登录就能看；没自动播就点一下画面' : '');
+          return;
+        }
+        const ok = TTS.play(o.text, {
+          onPart: (i, n) => { setStat(`正在读第 ${i} / ${n} 段…`); },
+          onEnd: () => {
+            reading = false;
+            setReadBtn('再读一遍');
+            setStat('读完啦，真棒！✅');
+          }
+        });
+        if (ok) { reading = true; setReadBtn('停止朗读'); }
+      };
+
+      btnP.onclick = () => {
+        if (!TTS.busy) { UI.toast('先点「🔊」开始朗读哦'); return; }
+        const p = TTS.toggle();
+        btnP.querySelector('b').textContent = p ? '继续' : '暂停';
+        btnP.querySelector('span').textContent = p ? '▶' : '⏸';
+        setStat(p ? '暂停中…' : '继续朗读中…');
+      };
+
+      // 没录视频 → 打开就自动读，孩子不用多点一下
+      // 注意：iOS / 微信内置浏览器要求朗读必须由用户手势触发，异步自动调用会被静音
+      const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isWeixin = /MicroMessenger/i.test(navigator.userAgent);
+      if (!hasVid) {
+        if (!TTS.ok) {
+          setStat('📱 这台设备不支持朗读，请用手机自带浏览器或 Chrome 打开');
+          btnR.disabled = true;
+          btnR.style.opacity = '.45';
+        } else if (cfg.AUTO_TTS !== false && !isIOS && !isWeixin) {
+          setTimeout(() => btnR.click(), 260);
+        } else {
+          setStat('点上面的大按钮，我就开始读～');
+        }
+      }
+
+      // 视频加载兜底提示
+      if (hasVid) {
+        const fr = mask.querySelector('.play-stage iframe');
+        let loaded = false;
+        if (fr) fr.onload = () => { loaded = true; };
+        setTimeout(() => {
+          if (!loaded) setStat('视频加载有点慢？点「🔊」先听本机朗读');
+        }, 4000);
+      }
+      return mask;
+    }
+  };
+
+  window.DB = DB; window.UI = UI; window.SFX = SFX; window.Say = Say; window.TTS = TTS;
+  window.FX = FX; window.Img = Img; window.Modal = Modal; window.Douyin = Douyin; window.Player = Player;
+  document.addEventListener('DOMContentLoaded', FX.init);
+})();
