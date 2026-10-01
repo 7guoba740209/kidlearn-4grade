@@ -1,0 +1,497 @@
+/* ================= 语文模块：单元目录 → 课文原文 → 抖音朗读 ================= */
+window.Chinese = (function () {
+  const FALLBACK_BOOK = '4a';
+
+  function findBook(id) { return CN_BOOKS.find(b => b.id === id) || CN_BOOKS[0]; }
+  function findUnit(book, uid) { return book.units.find(u => u.id === uid); }
+  function findLesson(unit, no) { return unit.lessons.find(l => l.no === no); }
+
+  /* 朗读源：优先 lesson.video → CN_LINKS 表 → 空（播放器自动走本机朗读） */
+  function linkOf(bookId, lesson) {
+    if (lesson.video) return lesson.video;
+    const t = (window.APP_CONFIG && APP_CONFIG.CN_LINKS) || {};
+    const key = bookId + '-' + lesson.no;
+    return t[key] || '';
+  }
+  /* 这一课有没有录好可用的抖音视频（能解析出视频ID才算） */
+  function hasVideo(bookId, lesson) {
+    return !!Douyin.parseVid(linkOf(bookId, lesson));
+  }
+
+  /* ---------- 首页：选册 ---------- */
+  function renderBook(p) {
+    const cards = CN_BOOKS.map(b => `
+      <button class="big-btn ${b.id === '4a' ? 'bg-o' : 'bg-p'}" data-go="#/cn/${b.id}">
+        <span class="ico">${b.id === '4a' ? '🍂' : '🌱'}</span>
+        <span>${b.name}<small>${b.sub} · 共 ${b.units.length} 个单元</small></span>
+      </button>`).join('');
+    return `
+      <div class="page-head"><span class="back" data-go="#/home">‹</span><h2>语文</h2></div>
+      <p class="big-title">选一册开始</p>
+      <p class="sub-title">点开就能看课文、听朗读</p>
+      ${cards}`;
+  }
+
+  /* ---------- 单元目录 ---------- */
+  const essaysOf = (bookId, unitId) =>
+    (window.CN_ESSAYS && CN_ESSAYS[bookId + '-' + unitId]) || [];
+
+  function renderUnits(p) {
+    const book = findBook(p[1]);
+    const units = book.units.map(u => {
+      const es = essaysOf(book.id, u.id);
+      const essayChip = es.length
+        ? `<a class="chip orange essay-chip" href="#/cn/${book.id}/${u.id}/essay">
+             ✍️ ${es.length} 篇优秀作文</a>`
+        : '';
+      return `
+      <div class="unit-card" style="border-left-color:${u.id === 'u1' ? '#FF8A3D' : ''}">
+        <h3>${u.name}</h3>
+        <div class="lesson-list">
+          ${u.lessons.map(l => `<a class="chip ${Number(l.no) % 2 ? '' : 'g'}" href="#/cn/${book.id}/${u.id}/${l.no}">${l.no} ${l.title}</a>`).join('')}
+          ${essayChip}
+        </div>
+      </div>`;
+    }).join('');
+    return `
+      <div class="page-head"><span class="back" data-go="#/cn">‹</span><h2>${book.name}</h2></div>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        ${CN_BOOKS.map(b => `<span class="chip small ${b.id === book.id ? 'b' : ''}" ${b.id === book.id ? '' : `data-go="#/cn/${b.id}"`}>${b.name}</span>`).join('')}
+      </div>
+      ${units}`;
+  }
+
+  /* ---------- 优秀作文列表（每个单元 3 篇） ---------- */
+  function renderEssays(p) {
+    const book = findBook(p[1]);
+    const unit = findUnit(book, p[2]) || book.units[0];
+    const es = essaysOf(book.id, unit.id);
+
+    if (!es.length) {
+      return `<div class="page-head"><span class="back" data-go="#/cn/${book.id}">‹</span><h2>优秀作文</h2></div>
+        <div class="card" style="text-align:center;padding:26px 16px">
+          <div style="font-size:52px">✍️</div>
+          <div style="font-weight:900;font-size:20px;margin-top:6px">这个单元还没有配作文</div>
+          <div style="color:var(--ink2);font-size:15px;margin-top:8px">
+            可以在 <b>data/essay-data.js</b> 里，用键名 <b>'${book.id}-${unit.id}'</b> 补上几篇。
+          </div>
+        </div>
+        <a class="big-btn bg-o" href="#/cn/${book.id}"><span class="ico">📖</span><span>回到单元目录</span></a>`;
+    }
+
+    const cards = es.map((e, i) => `
+      <div class="essay-card" data-go="#/cn/${book.id}/${unit.id}/essay/${i}">
+        <div class="ec-no">${i + 1}</div>
+        <div class="ec-main">
+          <div class="ec-title">${UI.esc(e.title)}</div>
+          <div class="ec-sub">${UI.esc(e.author || '')} · 约 ${e.words || (e.text || '').replace(/\s/g, '').length} 字</div>
+          <div class="ec-tags">${(e.tags || []).map(t => `<span class="etag">${UI.esc(t)}</span>`).join('')}</div>
+        </div>
+        <div class="ec-go">阅读 ›</div>
+      </div>`).join('');
+
+    return `
+      <div class="page-head"><span class="back" data-go="#/cn/${book.id}">‹</span><h2>优秀作文</h2>
+        <span class="spacer"></span><span class="chip small g">${unit.name.split('·')[0].trim()}</span></div>
+      <p class="big-title">${UI.esc(unit.name.split('·')[1] ? unit.name.split('·')[1].trim() : '单元习作')}</p>
+      <p class="sub-title">${book.name} · 本单元 ${es.length} 篇范文，点开就能读</p>
+      ${cards}
+      <div class="card" style="margin-top:14px">
+        <div style="font-weight:800;margin-bottom:6px">💡 怎么用这几篇范文</div>
+        <div style="color:var(--ink2);font-size:15px;line-height:1.8">
+          ① 先自己想一想：如果让我写，我会写什么？<br>
+          ② 再读范文，找找它写得好的地方（每篇都标了亮点）<br>
+          ③ 最后挑一个句式，改成你自己的事。
+        </div>
+      </div>`;
+  }
+
+  /* ---------- 作文正文页 ---------- */
+  function renderEssayRead(p) {
+    const book = findBook(p[1]);
+    const unit = findUnit(book, p[2]) || book.units[0];
+    const es = essaysOf(book.id, unit.id);
+    const idx = Number(p[3]) || 0;
+    const e = es[idx];
+    if (!e) return renderEssays([p[0], book.id, unit.id]);
+
+    const paras = String(e.text || '').split('\n').filter(s => s.trim().length);
+    const body = paras.map(s => `<p class="essay-p">${UI.esc(s.trim())}</p>`).join('');
+    const prev = idx > 0 ? `<a class="btn ghost" href="#/cn/${book.id}/${unit.id}/essay/${idx - 1}">‹ 上一篇</a>` : '<span></span>';
+    const next = idx < es.length - 1 ? `<a class="btn bg-b" href="#/cn/${book.id}/${unit.id}/essay/${idx + 1}">下一篇 ›</a>` : '<span></span>';
+
+    return `
+      <div class="page-head">
+        <span class="back" data-go="#/cn/${book.id}/${unit.id}/essay">‹</span>
+        <h2>优秀作文</h2>
+        <span class="spacer"></span>
+        <span class="chip small g">${idx + 1} / ${es.length}</span>
+      </div>
+
+      <div class="essay-head">
+        <h3>${UI.esc(e.title)}</h3>
+        <div class="essay-by">${UI.esc(e.author || '')}</div>
+        <div class="essay-meta">约 ${e.words || paras.join('').length} 字 · ${book.name} ${unit.name.split('·')[0].trim()}</div>
+        ${(e.tags || []).length ? `<div class="ec-tags" style="justify-content:center">
+          ${e.tags.map(t => `<span class="etag">${UI.esc(t)}</span>`).join('')}</div>` : ''}
+      </div>
+
+      <div class="essay-box">${body}</div>
+
+      <div class="card" style="margin-top:14px">
+        <div style="font-weight:800;margin-bottom:6px">✍️ 读完了，试试这几件事</div>
+        <div style="color:var(--ink2);font-size:16px;line-height:1.9">
+          1. 这篇作文你最喜欢哪一句？抄下来。<br>
+          2. 它用了什么方法？（${(e.tags || ['观察', '描写', '安排顺序']).join(' / ')}）<br>
+          3. 换成你自己的事，学着写一段。
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:14px">${prev}${next}</div>
+      <a class="big-btn bg-o" style="margin-top:10px" href="#/cn/${book.id}/${unit.id}/essay"><span class="ico">📚</span><span>回到这个单元的作文列表</span></a>`;
+  }
+
+  /* ---------- 课文页 ---------- */
+  function renderLesson(p) {
+    const book = findBook(p[1]);
+    const unit = findUnit(book, p[2]) || book.units[0];
+    const lesson = findLesson(unit, p[3]) || unit.lessons[0];
+    const ok = hasVideo(book.id, lesson);
+
+    // 排版：句子普遍很短（≥3行且平均长度<22字）→ 按诗歌/韵文居中排版，否则按现代文首行缩进
+    const lines = (lesson.text || '').split('\n').filter(s => s.trim().length);
+    const avg = lines.reduce((s, t) => s + t.length, 0) / Math.max(1, lines.length);
+    const isVerse = lines.length >= 3 && avg < 22;
+    const body = lines.map(s => `<p class="${isVerse ? 'poem' : ''}">${UI.esc(s)}</p>`).join('');
+
+    DB.set('lastCn', { b: book.id, u: unit.id, l: lesson.no, title: lesson.title });
+
+    return `
+      <div class="page-head">
+        <span class="back" data-go="#/cn/${book.id}/${unit.id}">‹</span>
+        <h2>${lesson.no} ${UI.esc(lesson.title)}</h2>
+        <span class="spacer"></span>
+        <span class="chip small g">${unit.name}</span>
+      </div>
+
+      <div class="toolbar">
+        <button class="btn bg-pk" id="btnRead"><span>🎧</span>听朗读</button>
+        <button class="btn ghost" id="btnMark">${isMarked(book.id, lesson.no) ? '⭐ 已收藏' : '☆ 收藏'}</button>
+      </div>
+      <div class="read-hint">🎧 点「听朗读」，会有声音一句一句读给你听，画面上同时显示对应的图</div>
+
+      <div class="text-box">
+        <div class="by">${UI.esc(lesson.by || '')}</div>
+        ${body}
+        ${lesson.full ? '' : `<p style="text-indent:0;color:var(--ink2);font-size:15px">—— 以上为课文片段示例，完整原文可在 data/chinese-data.js 中补充 ——</p>`}
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <div style="font-weight:800;margin-bottom:6px">📌 这一课</div>
+        <div style="color:var(--ink2);font-size:16px">
+          点「听朗读」进入朗读页：<b>一页一句 + 配图</b>，声音读到哪句，画面上就是哪句。<br>
+          想换成本课真人朗读视频也可以：打开 <b>data/config.js</b>，
+          在 CN_LINKS 里加一行 <b>'${book.id}-${lesson.no}': '视频ID或链接'</b>。
+        </div>
+      </div>
+
+      <div class="grid2" style="margin-top:14px">
+        ${prevNext(book, unit, lesson)}
+      </div>`;
+  }
+
+  function presOrNext(book, unit, lesson, dir) {
+    const units = book.units;
+    let ui = units.indexOf(unit), li = unit.lessons.indexOf(lesson);
+    li += dir;
+    while (ui >= 0 && ui < units.length) {
+      if (li < 0) { ui--; if (ui < 0) break; li = units[ui].lessons.length - 1; continue; }
+      if (li >= units[ui].lessons.length) { ui++; li = 0; continue; }
+      const u = units[ui], l = u.lessons[li];
+      return `<a class="btn ${dir < 0 ? 'ghost' : 'bg-b'}" href="#/cn/${book.id}/${u.id}/${l.no}">
+        ${dir < 0 ? '‹ 上一课：' : '下一课：'} ${l.title}</a>`;
+    }
+    return '<span></span>';
+  }
+  function prevNext(book, unit, lesson) {
+    return presOrNext(book, unit, lesson, -1) + presOrNext(book, unit, lesson, 1);
+  }
+
+  function markKey(b, l) { return 'marks_' + b + '_' + l; }
+  function isMarked(b, l) { return !!DB.get(markKey(b, l), false); }
+
+  /* ============================================================
+   *  朗读页：看图朗读 —— 一页 = 一图 + 一句，声音与画面逐页同步
+   * ============================================================ */
+
+  /* 切成"一页一句"（句子过长时在标点处再断，避免一屏放不下） */
+  function pageLines(text) {
+    const out = [];
+    (text || '').replace(/\r/g, '').split('\n').forEach(line => {
+      line = line.trim();
+      if (!line) return;
+      let buf = '';
+      for (const ch of line) {
+        buf += ch;
+        if ('。！？；!?…'.indexOf(ch) >= 0 && buf.length >= 34) { out.push(buf.trim()); buf = ''; }
+        else if (buf.length >= 46) { out.push(buf.trim()); buf = ''; }
+      }
+      if (buf.trim()) out.push(buf.trim());
+    });
+    // 太短的页与相邻页合并，避免一页只有几个字
+    const merged = [];
+    out.forEach(s => {
+      const last = merged[merged.length - 1];
+      if (last && (last.length < 12 || s.length < 12) && (last.length + s.length) <= 44) {
+        merged[merged.length - 1] = last + s;
+      } else merged.push(s);
+    });
+    return merged;
+  }
+
+  /* 给每一页配插图：优先课文 art 字段，其次标题匹配，再次关键词匹配，最后主题色兜底 */
+  const ART_BY_TITLE = {
+    '观潮': ['🌊', '🌫️', '🐎', '🏞️', '☀️'],
+    '走月亮': ['🌕', '✨', '🌾', '💧', '🪨'],
+    '繁星': ['⭐', '🌌', '🚢', '✦', '🌃'],
+    '蝴蝶的家': ['🦋', '🌧️', '🌳', '☂️', '💐'],
+    '一个豆荚里的五粒豆': ['🫛', '🌱', '🪟', '🛏️', '☀️'],
+    '蝙蝠和雷达': ['🦇', '📡', '✈️', '🌙', '🔊'],
+    '爬山虎的脚': ['🌿', '🧱', '👣', '🍃', '💧'],
+    '蟋蟀的住宅': ['🦗', '🏠', '🌱', '🕳️', '☀️'],
+    '盘古开天地': ['🌍', '☁️', '⛰️', '🌊', '✨'],
+    '精卫填海': ['🐦', '🪨', '🌊', '⛰️', '🔥'],
+    '女娲补天': ['🌈', '🪨', '🔥', '👸', '✨'],
+    '嫦娥': ['🌕', '🏹', '🧚', '✨', '🌌'],
+    '出塞': ['🏯', '🌙', '🐎', '⚔️', '🏔️'],
+    '凉州词': ['🍇', '🏜️', '🐎', '🎵', '🍷'],
+    '夏日绝句': ['⚔️', '🌊', '👤', '🔥', '🏞️'],
+    '题西林壁': ['⛰️', '☁️', '👀', '🌲', '🌄'],
+    '雪梅': ['❄️', '🌸', '🌿', '☀️', '🕊️'],
+    '暮江吟': ['🌇', '🌊', '🌙', '💧', '🍃'],
+    '嫦娥奔月': ['🌕', '✨', '🏹', '☁️', '🌌'],
+    '猫': ['🐱', '🐾', '🧶', '☀️', '🛋️'],
+    '母鸡': ['🐔', '🐤', '🥚', '🌾', '☀️'],
+    '白鹅': ['🦢', '💧', '🎩', '🌾', '🥣'],
+    '天窗': ['🪟', '⭐', '🌙', '🏠', '✨'],
+    '乡下人家': ['🏡', '🌻', '🐔', '🌉', '🌾'],
+    '三月桃花水': ['🌸', '💧', '🪷', '🎵', '☀️'],
+    '短诗三首': ['💫', '🌙', '🌸', '🌊', '❤️'],
+    '绿': ['🌿', '🍃', '🌲', '💚', '🌱'],
+    '白桦': ['🌳', '❄️', '☀️', '🌫️', '✨'],
+    '在天晴了的时候': ['🌈', '☀️', '💧', '🍃', '🐦'],
+    '小英雄雨来': ['🌊', '🏃', '🛟', '🔫', '🏘️'],
+    '我们家的男子汉': ['👦', '🍚', '🧺', '🏠', '😊'],
+    '芦花鞋': ['👟', '❄️', '🌾', '💰', '☀️'],
+    '黄继光': ['🎖️', '⛰️', '🔥', '💥', '🇨🇳'],
+    '宝葫芦的秘密': ['🎃', '🪄', '✨', '👦', '🌳'],
+    '巨人的花园': ['🏰', '🌸', '❄️', '🌳', '👦'],
+    '海的女儿': ['🌊', '🧜', '🐚', '🧜‍♀️', '💫'],
+    '挑山工': ['⛰️', '👣', '🎒', '☁️', '💪'],
+    '记金华的双龙洞': ['🕳️', '💧', '⛰️', '🚢', '🔦'],
+    '文言文二则': ['📜', '⛰️', '🎻', '💧', '🕯️'],
+    '纳米技术就在我们身边': ['🔬', '⚙️', '💊', '🧪', '💡'],
+    '千年梦圆在今朝': ['🚀', '🌕', '⭐', '🇨🇳', '🛰️'],
+    '飞向蓝天的恐龙': ['🦕', '🪶', '🐦', '🥚', '🔬']
+  };
+  const ART_BY_CHAR = [
+    [/潮|浪|江|海|水|溪|洞/, ['🌊', '💧', '🪨']],
+    [/月|星|夜|光|晓/, ['🌙', '⭐', '✨']],
+    [/花|草|树|叶|林|苗|豆|绿/, ['🌸', '🌿', '🌳']],
+    [/鸟|鹅|鸡|麻|蝙|蝠|蝶|燕|鹊/, ['🐦', '🐤', '🦋']],
+    [/山|峰|石|岭|崖|坡/, ['⛰️', '🪨', '🏔️']],
+    [/雨|云|雾|雪|风|晴/, ['🌧️', '☁️', '❄️']],
+    [/船|舟|渡|帆/, ['🚢', '⛵', '🛶']],
+    [/太阳|日出|阳光|暖|照/, ['☀️', '🌤️', '🌈']],
+    [/家|屋|房|窗|门|院/, ['🏠', '🪟', '🛏️']],
+    [/孩子|人们|我们|妈妈|阿妈|他|她/, ['🧒', '👧', '👦']],
+    [/钱|银|元|买|卖/, ['💰', '🪙', '🛒']],
+    [/兵|战|军|将|士|枪/, ['⚔️', '🎖️', '🛡️']]
+  ];
+  const ART_PALETTE = [
+    'linear-gradient(135deg,#FFF1DC,#FFD9AE)',
+    'linear-gradient(135deg,#E4F1FF,#C9DFFF)',
+    'linear-gradient(135deg,#E6FBEE,#C7F0D9)',
+    'linear-gradient(135deg,#FFEAF3,#FFD0E3)',
+    'linear-gradient(135deg,#F2EBFF,#DFD1FF)',
+    'linear-gradient(135deg,#FFF9D9,#FFEE9E)'
+  ];
+
+  function artFor(lesson, i) {
+    if (lesson.art && lesson.art[i]) {
+      return { emoji: lesson.art[i], bg: ART_PALETTE[i % ART_PALETTE.length] };
+    }
+    const t = lesson.title || '', body = lesson.text || '';
+    for (const k in ART_BY_TITLE) {
+      if (t.indexOf(k) >= 0) {
+        const list = ART_BY_TITLE[k];
+        return { emoji: list[i % list.length], bg: ART_PALETTE[i % ART_PALETTE.length] };
+      }
+    }
+    const hits = [];
+    ART_BY_CHAR.forEach(pair => { if (pair[0].test(body)) hits.push(pair[1]); });
+    if (hits.length) {
+      const pick = hits[i % hits.length];
+      return { emoji: pick[Math.floor(i / hits.length) % pick.length], bg: ART_PALETTE[i % ART_PALETTE.length] };
+    }
+    const fb = ['📖', '🌟', '🎈', '🍃', '☀️', '🌷'];
+    return { emoji: fb[i % fb.length], bg: ART_PALETTE[i % ART_PALETTE.length] };
+  }
+
+  let READER = null;
+
+  function openReader(book, unit, lesson) {
+    const lines = pageLines(lesson.text);
+    if (!lines.length) { UI.toast('这一课还没有课文内容哦'); return; }
+
+    const title = `${lesson.no} ${lesson.title}`;
+    const unitShort = (unit.name || '').split('·')[0].trim();
+    const sub = `${book.name} · ${unitShort} · 共 ${lines.length} 句`;
+
+    const pages = lines.map((s, i) => {
+      const a = artFor(lesson, i);
+      const chars = s.replace(/[，。！？；、！？…「」“”"'']/g, '');
+      return `<div class="rpage" data-i="${i}">
+          <div class="rpic" style="background:${a.bg}">${a.emoji}</div>
+          <div class="rtext">${UI.esc(chars)}</div>
+        </div>`;
+    }).join('');
+
+    const el = document.createElement('div');
+    el.className = 'reader';
+    el.innerHTML = `
+      <div class="reader-top">
+        <div class="reader-title">🎧 ${UI.esc(title)}</div>
+        <button class="reader-x" id="rClose" aria-label="关闭">✕</button>
+      </div>
+      <div class="reader-stage">${pages}</div>
+      <div class="reader-prog" id="rStat">${UI.esc(sub)}</div>
+      <div class="reader-bar">
+        <button class="rnav" id="rPrev">‹ 上一句</button>
+        <button class="rplay" id="rPlay">▶ 开始朗读</button>
+        <button class="rnav" id="rNext">下一句 ›</button>
+      </div>`;
+    document.body.appendChild(el);
+    document.body.style.overflow = 'hidden';
+
+    READER = {
+      el, lines, i: -1, playing: false,
+      els: UI.$$('.rpage', el),
+      stat: el.querySelector('#rStat'),
+      btnPlay: el.querySelector('#rPlay'),
+      btnPrev: el.querySelector('#rPrev'),
+      btnNext: el.querySelector('#rNext')
+    };
+
+    const show = (k) => {
+      READER.els.forEach((e, j) => {
+        e.classList.toggle('on', j === k);
+        e.classList.toggle('left', j < k);
+      });
+      READER.i = k;
+      READER.btnPrev.disabled = k <= 0;
+      READER.btnNext.disabled = k >= READER.lines.length - 1;
+    };
+
+    READER.btnPrev.onclick = () => { SFX.tap(); stopReader(); show(Math.max(0, READER.i - 1)); };
+    READER.btnNext.onclick = () => { SFX.tap(); stopReader(); show(Math.min(READER.lines.length - 1, READER.i + 1)); };
+    READER.els.forEach((e, j) => {
+      e.onclick = () => { if (!READER.playing) startFrom(j); };
+    });
+
+    READER.btnPlay.onclick = () => {
+      if (READER.playing) { stopReader('已暂停，点「▶ 继续朗读」接着听'); return; }
+      if (!TTS.ok) { UI.toast('这台设备不支持朗读，请换个浏览器试试'); return; }
+      startFrom(READER.i < 0 ? 0 : READER.i);
+    };
+
+    el.querySelector('#rClose').onclick = () => { closeReader(); };
+
+    function startFrom(from) {
+      READER.playing = true;
+      READER.btnPlay.textContent = '⏸ 暂停';
+      READER.btnPlay.classList.add('playing');
+      show(from);
+      TTS.play(null, {
+        units: READER.lines.slice(from),
+        onStep: (k) => {
+          if (k < 0) return;
+          show(from + k);
+          READER.stat.textContent = `正在朗读 第 ${from + k + 1} / ${READER.lines.length} 句`;
+        },
+        onEnd: () => {
+          READER.playing = false;
+          READER.btnPlay.textContent = '🔄 再读一遍';
+          READER.btnPlay.classList.remove('playing');
+          READER.stat.textContent = '读完啦，真棒！✅ ' + sub;
+        }
+      });
+    }
+
+    // 电脑/安卓：打开就自动一句句读；iOS/微信必须用户手势，改为提示点击
+    const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isWeixin = /MicroMessenger/i.test(navigator.userAgent);
+    if (TTS.ok && !isIOS && !isWeixin) {
+      setTimeout(() => { if (READER && !READER.playing) READER.btnPlay.click(); }, 340);
+    } else {
+      READER.stat.textContent = '点下面的大按钮，我就一句一句读给你听～';
+    }
+
+    show(0);
+    SFX.tap();
+  }
+
+  function stopReader(msg) {
+    if (!READER) return;
+    TTS.stop();
+    READER.playing = false;
+    READER.btnPlay.textContent = '▶ 继续朗读';
+    READER.btnPlay.classList.remove('playing');
+    if (msg) READER.stat.textContent = msg;
+  }
+
+  function closeReader() {
+    if (!READER) return;
+    TTS.stop();
+    READER.el.remove();
+    READER = null;
+    document.body.style.overflow = '';
+  }
+
+  function readerOpen() { return !!READER; }
+  function closeReaderIfAny() { if (READER) closeReader(); }
+
+  return {
+    readerOpen, closeReaderIfAny,
+    render(p) {
+      if (!p[1]) return renderBook(p);
+      if (!p[2]) return renderUnits(p);
+      // 作文路由：#/cn/4a/u1/essay 或 #/cn/4a/u1/essay/2
+      if (p[3] === 'essay') {
+        return p[4] === undefined || p[4] === '' ? renderEssays(p) : renderEssayRead(p);
+      }
+      return renderLesson(p);
+    },
+    mount(p) {
+      const br = document.getElementById('btnRead');
+      if (br) br.onclick = () => {
+        const book = findBook(p[1]);
+        const unit = findUnit(book, p[2]) || book.units[0];
+        const lesson = findLesson(unit, p[3]) || unit.lessons[0];
+        SFX.tap();
+        openReader(book, unit, lesson);
+      };
+      const bm = document.getElementById('btnMark');
+      if (bm) bm.onclick = () => {
+        const book = findBook(p[1]);
+        const lesson = findLesson(findUnit(book, p[2]), p[3]);
+        const k = markKey(book.id, lesson.no);
+        DB.set(k, !DB.get(k, false));
+        SFX.right();
+        bm.textContent = DB.get(k) ? '⭐ 已收藏' : '☆ 收藏';
+        UI.toast(DB.get(k) ? '收藏好啦！' : '取消收藏');
+      };
+    }
+  };
+})();
