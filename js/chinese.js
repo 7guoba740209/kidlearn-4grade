@@ -257,17 +257,7 @@ window.Chinese = (function () {
   }
 
   /* ================= 原地朗读（不跳页）：课文页直接出声 + 逐句高亮 ================= */
-  let LIVE = null;   // { lines, els, i, playing, bar, btnPlay, hint }
-
-  function liveStop(msg) {
-    if (!LIVE) return;
-    TTS.stop();
-    LIVE.playing = false;
-    LIVE.i = -1;
-    if (LIVE.btnPlay) { LIVE.btnPlay.textContent = '▶ 继续'; LIVE.btnPlay.classList.remove('playing'); }
-    LIVE.els.forEach(e => e.classList.remove('now'));
-    if (msg && LIVE.hint) LIVE.hint.textContent = msg;
-  }
+  let LIVE = null;   // { lines, els, i, playing, pending, gen, bar, btnPlay, hint }
 
   /* 彻底清掉（切换路由/换课时调） */
   function liveClose() {
@@ -275,45 +265,10 @@ window.Chinese = (function () {
     TTS.stop();
     if (LIVE.bar) LIVE.bar.hidden = true;
     LIVE.els.forEach(e => e.classList.remove('now'));
+    LIVE.gen++;          // 让所有挂起的"等待语音就绪"回调失效
     LIVE = null;
   }
   function livePlaying() { return !!(LIVE && LIVE.playing); }
-
-  function liveStart(from) {
-    if (!LIVE) return;
-    if (!TTS.ok) { UI.toast('这台设备不支持朗读，换个浏览器试试'); return; }
-    const from2 = from < 0 ? 0 : from;
-    LIVE.playing = true;
-    if (LIVE.btnPlay) { LIVE.btnPlay.textContent = '⏸ 暂停'; LIVE.btnPlay.classList.add('playing'); }
-    if (LIVE.bar) LIVE.bar.hidden = false;
-
-    TTS.play(null, {
-      units: LIVE.lines.slice(from2),
-      onStep: (k) => {
-        if (k < 0) return;
-        liveShow(from2 + k);
-      },
-      onEnd: () => {
-        if (!LIVE) return;
-        LIVE.playing = false;
-        LIVE.i = -1;
-        LIVE.els.forEach(e => e.classList.remove('now'));
-        if (LIVE.btnPlay) { LIVE.btnPlay.textContent = '🔄 再读一遍'; LIVE.btnPlay.classList.remove('playing'); }
-        if (LIVE.hint) LIVE.hint.textContent = '读完啦，真棒！✅ 想再听就点「再读一遍」';
-      }
-    });
-  }
-
-  function liveShow(k) {
-    if (!LIVE) return;
-    LIVE.i = k;
-    LIVE.els.forEach((e, j) => e.classList.toggle('now', j === k));
-    const cur = LIVE.els[k];
-    if (cur && cur.scrollIntoView) {
-      try { cur.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { }
-    }
-    if (LIVE.hint) LIVE.hint.textContent = `正在朗读 第 ${k + 1} / ${LIVE.lines.length} 句`;
-  }
 
   /* 绑定课文页的原地朗读 */
   function mountLiveReader(book, unit, lesson) {
@@ -349,7 +304,7 @@ window.Chinese = (function () {
 
     LIVE = {
       lines, els: lines.map((_, i) => owner[i]).filter(Boolean),
-      i: -1, playing: false,
+      i: -1, playing: false, pending: false, gen: 0,
       bar, btnPlay, hint
     };
 
@@ -365,55 +320,109 @@ window.Chinese = (function () {
 
     // 直接用「句」为单位播放（更贴合"读到哪句哪句变色"）
     const play = (from) => {
-      if (!TTS.ok) { UI.toast('这台设备不支持朗读，换个浏览器试试'); return; }
+      if (!LIVE) return;
       const f = from < 0 ? 0 : from;
-      LIVE.playing = true;
-      btnPlay.textContent = '⏸ 暂停';
-      btnPlay.classList.add('playing');
+      const myGen = ++LIVE.gen;      // 本次播放的世代号；被打断后旧回调作废
+
+      const begin = () => {
+        if (!LIVE || LIVE.gen !== myGen) return;
+        LIVE.pending = false;
+        LIVE.playing = true;
+        btnPlay.textContent = '⏸ 暂停';
+        btnPlay.classList.add('playing');
+        bar.hidden = false;
+        TTS.play(null, {
+          units: lines.slice(f),
+          onStep: (k) => {
+            if (!LIVE || LIVE.gen !== myGen) return;
+            if (k >= 0) { LIVE.i = f + k; showK(f + k); }
+          },
+          onEnd: () => {
+            if (!LIVE || LIVE.gen !== myGen) return;
+            LIVE.playing = false; LIVE.i = -1;
+            paras.forEach(p => p.classList.remove('now'));
+            btnPlay.textContent = '🔄 再读一遍';
+            btnPlay.classList.remove('playing');
+            if (hint) hint.textContent = '读完啦，真棒！✅ 想再听就点「再读一遍」';
+          }
+        });
+      };
+
+      // 语音模块没就绪时**绝不假装在播**：先进入"准备中"，等它就绪再自动开读。
+      // （部分手机浏览器 speechSynthesis 会晚几百毫秒才注入）
+      if (Say.ready()) { begin(); return; }
+
+      LIVE.pending = true;
+      LIVE.playing = false;
       bar.hidden = false;
-      TTS.play(null, {
-        units: lines.slice(f),
-        onStep: (k) => { if (k >= 0) { LIVE.i = f + k; showK(f + k); } },
-        onEnd: () => {
-          if (!LIVE) return;
-          LIVE.playing = false; LIVE.i = -1;
-          paras.forEach(p => p.classList.remove('now'));
-          btnPlay.textContent = '🔄 再读一遍';
-          btnPlay.classList.remove('playing');
-          if (hint) hint.textContent = '读完啦，真棒！✅ 想再听就点「再读一遍」';
-        }
+      btnPlay.textContent = '⏳ 准备中';
+      btnPlay.classList.remove('playing');
+      if (hint) hint.textContent = '正在准备语音，马上就好…';
+
+      Say.whenReady(good => {
+        if (!LIVE || LIVE.gen !== myGen) return;
+        if (good) { begin(); return; }
+        LIVE.pending = false;
+        bar.hidden = true;
+        btnPlay.textContent = '🔊 听朗读';
+        if (hint) hint.textContent = Say.diag();
+        UI.toast(Say.diag(), 3600);
       });
+    };
+
+    const pauseTo = () => {
+      TTS.stop();
+      if (!LIVE) return;
+      LIVE.gen++;                 // 作废挂起回调
+      LIVE.pending = false;
+      LIVE.playing = false;
+      btnPlay.textContent = '▶ 继续';
+      btnPlay.classList.remove('playing');
     };
 
     br.onclick = () => {
       SFX.tap();
-      if (LIVE && LIVE.playing) { TTS.stop(); LIVE.playing = false; btnPlay.textContent = '▶ 继续'; btnPlay.classList.remove('playing'); if (hint) hint.textContent = '已暂停，点下面的「继续」接着听'; return; }
+      if (!LIVE) return;
+      if (LIVE.pending) { UI.toast('语音正在准备，稍等一下…'); return; }
+      if (LIVE.playing) {
+        pauseTo();
+        if (hint) hint.textContent = '已暂停，点下面的「继续」接着听';
+        return;
+      }
       play(0);
     };
 
     btnPlay.onclick = () => {
       SFX.tap();
+      if (!LIVE) return;
+      if (LIVE.pending) { UI.toast('语音正在准备，稍等一下…'); return; }
       if (LIVE.playing) {
-        TTS.stop();
-        LIVE.playing = false;
-        btnPlay.textContent = '▶ 继续';
-        btnPlay.classList.remove('playing');
+        pauseTo();
         if (hint) hint.textContent = '已暂停，点「继续」接着听';
       } else {
         play(LIVE.i < 0 ? 0 : LIVE.i);
       }
     };
 
-    btnPrev.onclick = () => { SFX.tap(); TTS.stop(); LIVE.playing = false; play(Math.max(0, LIVE.i - 1)); };
-    btnNext.onclick = () => { SFX.tap(); TTS.stop(); LIVE.playing = false; play(Math.min(lines.length - 1, LIVE.i + 1)); };
-    btnClose.onclick = () => { SFX.tap(); TTS.stop(); LIVE.playing = false; bar.hidden = true; paras.forEach(p => p.classList.remove('now')); if (hint) hint.textContent = '🔊 点「听朗读」，声音会一句一句读出来'; };
+    btnPrev.onclick = () => { SFX.tap(); pauseTo(); play(Math.max(0, LIVE.i - 1)); };
+    btnNext.onclick = () => { SFX.tap(); pauseTo(); play(Math.min(lines.length - 1, LIVE.i + 1)); };
+    btnClose.onclick = () => {
+      SFX.tap();
+      if (!LIVE) return;
+      LIVE.gen++; LIVE.pending = false; LIVE.playing = false;
+      TTS.stop();
+      bar.hidden = true;
+      paras.forEach(p => p.classList.remove('now'));
+      if (hint) hint.textContent = '🔊 点「听朗读」，声音会一句一句读出来';
+    };
 
     // 点某一句，从这句开始读
-    paras.forEach((pel, pi) => {
+    paras.forEach((pel) => {
       pel.style.cursor = 'pointer';
       pel.onclick = () => {
+        if (!LIVE) return;
         const k = owner.findIndex(o => o === pel);
-        if (k >= 0) { SFX.tap(); TTS.stop(); LIVE.playing = false; play(k); }
+        if (k >= 0) { SFX.tap(); pauseTo(); play(k); }
       };
     });
   }
