@@ -69,21 +69,74 @@
   };
 
   /* ---------- 朗读（Web Speech API，离线可用、免登录） ---------- */
+  /* 移动端音频解锁：iOS/微信要求语音必须由"用户手势"直接触发。
+     下面这个 warmup 在任何一次点击/触摸时被调用，把音频通道打开，
+     之后按钮里的 speak 就不会再被 not-allowed。 */
+  let AUDIO_UNLOCKED = false;
+  function unlockAudio() {
+    if (AUDIO_UNLOCKED) return;
+    try {
+      // 1) 打开 WebAudio（彩纸音效用它，顺便解锁）
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) {
+        if (!window.__ac) window.__ac = new AC();
+        if (window.__ac.state === 'suspended') window.__ac.resume();
+      }
+      // 2) 用一句话把 speech 通道"点亮"（静音、极短，人耳听不到）
+      if ('speechSynthesis' in window) {
+        const u = new SpeechSynthesisUtterance(' ');
+        u.volume = 0; u.rate = 10;
+        speechSynthesis.speak(u);
+      }
+      AUDIO_UNLOCKED = true;
+    } catch (e) { }
+  }
+  document.addEventListener('touchstart', unlockAudio, { passive: true });
+  document.addEventListener('touchend', unlockAudio, { passive: true });
+  document.addEventListener('click', unlockAudio, true);
+  window.__unlockAudio = unlockAudio;
+
   const Say = {
     ok: 'speechSynthesis' in window,
     /* 英文朗读：词组（moon cake / sports day / New Year）按空格拆词逐个排队朗读 */
     en(word, rate) {
       if (!Say.ok) { UI.toast('这台设备暂时不支持朗读哦'); return false; }
       try {
-        speechSynthesis.cancel();
         const r = rate || (window.APP_CONFIG && APP_CONFIG.EN_SPEAK_RATE) || .8;
         const t = String(word == null ? '' : word).trim();
         if (!t) return false;
-        t.split(/\s+/).filter(Boolean).forEach(p => {
-          const u = new SpeechSynthesisUtterance(p);
-          u.lang = 'en-US'; u.rate = r;
+        const parts = t.split(/\s+/).filter(Boolean);
+        const vs = VOICES.length ? VOICES : refreshVoices();
+        const enV = vs.find(v => /^en[-_]US/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null;
+
+        // 关键修复：cancel() 是异步的，紧跟 speak() 会被一起取消（移动端 100% 丢声）。
+        // 做法：先 cancel，等一个 tick 再 speak。
+        speechSynthesis.cancel();
+        const fire = () => {
+          parts.forEach(p => {
+            const u = new SpeechSynthesisUtterance(p);
+            u.lang = 'en-US';
+            u.rate = r;
+            if (enV) u.voice = enV;
+            speechSynthesis.speak(u);
+          });
+        };
+        setTimeout(fire, 60);
+        return true;
+      } catch (e) { return false; }
+    },
+    /* 中文单句朗读（作文页/练习用） */
+    zh(text, rate) {
+      if (!Say.ok) { UI.toast('这台设备暂时不支持朗读哦'); return false; }
+      try {
+        const t = String(text == null ? '' : text).trim();
+        if (!t) return false;
+        speechSynthesis.cancel();
+        setTimeout(() => {
+          const u = new SpeechSynthesisUtterance(t);
+          u.lang = 'zh-CN'; u.rate = rate || .9;
           speechSynthesis.speak(u);
-        });
+        }, 60);
         return true;
       } catch (e) { return false; }
     },
@@ -105,7 +158,7 @@
 
     voice() {
       if (!TTS.ok) return null;
-      const vs = speechSynthesis.getVoices() || [];
+      const vs = VOICES.length ? VOICES : refreshVoices();
       return vs.find(v => /zh[-_]CN/i.test(v.lang)) ||
         vs.find(v => /^zh/i.test(v.lang)) ||
         vs.find(v => /Chinese|Huihui|Yaoyao|Xiaoxiao|Tingting/i.test(v.name)) || null;
@@ -154,7 +207,9 @@
       TTS.onPart = opt.onPart || null;
       TTS.rate = opt.rate || cfg.TTS_RATE || .85;
       TTS.pitch = opt.pitch || cfg.TTS_PITCH || 1.05;
-      TTS.next();
+      // 关键：stop() 里的 cancel() 是异步的，必须等一个 tick 再 speak，
+      // 否则移动端会把第一句（甚至整段）一起取消掉 → 点了没声音。
+      setTimeout(() => { if (!TTS.stopped) TTS.next(); }, 70);
       return true;
     },
 
@@ -203,9 +258,16 @@
     },
     get busy() { return TTS.ok && !TTS.stopped; }
   };
+  let VOICES = [];
+  function refreshVoices() {
+    try { VOICES = speechSynthesis.getVoices() || []; } catch (e) { VOICES = []; }
+    return VOICES;
+  }
   if (TTS.ok) {
-    try { speechSynthesis.getVoices(); } catch (e) { }
-    speechSynthesis.onvoiceschanged = () => { try { speechSynthesis.getVoices(); } catch (e) { } };
+    refreshVoices();
+    speechSynthesis.onvoiceschanged = refreshVoices;
+    // iOS 首次 getVoices() 常返回空，延迟再取几次
+    [120, 500, 1200, 2500].forEach(ms => setTimeout(refreshVoices, ms));
   }
 
   /* ---------- 抖音：免登录内嵌播放 ---------- */
