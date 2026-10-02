@@ -47,6 +47,7 @@ window.APP_CONFIG = {
   MATH_OCR: false,        // true = 使用真实 OCR 接口；false = 本地模拟
   MATH_MAX_PHOTO: 800,    // 存云盘的照片最长边像素（越小越省空间）
   MATH_PRACTICE_N: 5,     // 每次自动生成几道针对性练习题
+  MATH_CROP: true,        // true = 拍完先框住"这一道题"再识别；false = 直接识别整张
 
   /* ---------- 英语 ---------- */
   EN_SPEAK_RATE: 0.75,    // 朗读语速（0.1~1，越小越慢）
