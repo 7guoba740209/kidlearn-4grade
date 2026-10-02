@@ -231,6 +231,19 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
 }
 .text-box p.now.poem{background:linear-gradient(90deg,#FFE9C9,#FFD9A8)}
 
+/* 「回到正在读的地方」：用户自己翻看后出现，不遮正文 */
+.follow-btn{
+  position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(136px + env(safe-area-inset-bottom,0px));
+  z-index:219;
+  height:44px;padding:0 20px;border:none;border-radius:999px;
+  background:linear-gradient(135deg,#FFB05C,#FF8A3D);color:#fff;
+  font-size:16px;font-weight:800;white-space:nowrap;
+  box-shadow:0 5px 16px rgba(224,112,42,.42);
+}
+.follow-btn:active{transform:translateX(-50%) scale(.95)}
+.follow-btn[hidden]{display:none}
+
 /* 底部悬浮控制条 */
 .songbar{
   position:fixed;left:0;right:0;bottom:calc(64px + env(safe-area-inset-bottom,0px));
@@ -265,3 +278,58 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
   display:flex;align-items:center;justify-content:center;border:none;
 }
 .sb-x:active{transform:scale(.93)}
+
+/* ================= 拍照后框选一题（裁剪） ================= */
+.crop-mask{
+  position:fixed;inset:0;z-index:400;
+  display:flex;flex-direction:column;
+  background:#1D1A17;
+  opacity:0;transition:opacity .18s;overscroll-behavior:contain;
+}
+.crop-mask.on{opacity:1}
+.crop-head{
+  flex:none;display:flex;align-items:center;gap:10px;
+  padding:calc(10px + env(safe-area-inset-top,0px)) 16px 10px;
+  color:#fff;
+}
+.crop-title{flex:1;font-size:17px;font-weight:800}
+.crop-x{
+  width:38px;height:38px;flex:none;border:none;border-radius:50%;
+  background:rgba(255,255,255,.16);color:#fff;font-size:18px;
+  display:flex;align-items:center;justify-content:center;
+}
+.crop-scroll{
+  flex:1;min-height:0;overflow:hidden;padding:6px 12px;
+  display:flex;align-items:center;justify-content:center;
+}
+/* 宽高由 JS 精确设置（与图片显示像素一一对应），这里只兜底，
+   不能写 max-height 之类的约束，否则竖长照片会被压扁、选框坐标错位 */
+.crop-wrap{position:relative;display:block;line-height:0;touch-action:none}
+.crop-wrap img{
+  display:block;border-radius:10px;
+  -webkit-user-select:none;user-select:none;-webkit-user-drag:none;
+}
+.crop-box{
+  position:absolute;box-sizing:border-box;
+  border:2px solid #FFB05C;border-radius:6px;
+  box-shadow:0 0 0 9999px rgba(0,0,0,.55);
+  cursor:move;touch-action:none;
+}
+.crop-h{
+  position:absolute;width:26px;height:26px;border-radius:50%;
+  background:#FFB05C;border:3px solid #fff;box-sizing:border-box;
+  touch-action:none;
+}
+.crop-h[data-h="tl"]{left:-13px;top:-13px;cursor:nwse-resize}
+.crop-h[data-h="tr"]{right:-13px;top:-13px;cursor:nesw-resize}
+.crop-h[data-h="bl"]{left:-13px;bottom:-13px;cursor:nesw-resize}
+.crop-h[data-h="br"]{right:-13px;bottom:-13px;cursor:nwse-resize}
+.crop-tip{
+  flex:none;text-align:center;color:#EADFD3;font-size:14px;
+  padding:8px 16px 2px;line-height:1.6;
+}
+.crop-tip b{color:#FFD9A8}
+.crop-actions{
+  flex:none;display:grid;grid-template-columns:1fr 1.4fr;gap:10px;
+  padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));
+}
