@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#FFF7EE">
+<!-- 在线朗读兜底：百度 TTS 接口有防盗链，带 Referer 会返回 0 字节空白。
+     注意 <audio> 上的 referrerpolicy 属性**不生效**（媒体元素没有这个属性），
+     必须用文档级策略一次关掉整页的 Referer。 -->
+<meta name="referrer" content="no-referrer">
 <title>四年级学习小屋 · 语文 / 数学 / 英语</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="学习小屋">
