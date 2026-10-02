@@ -333,6 +333,12 @@ window.Chinese = (function () {
         bar.hidden = false;
         TTS.play(null, {
           units: lines.slice(f),
+          onMode: (m) => {
+            // 'net' = 这台设备没有本机语音，已自动改用在线朗读；提示一下免得以为坏了
+            if (m === 'net' && hint && LIVE && LIVE.gen === myGen) {
+              hint.textContent = '正在用在线朗读，马上开始…';
+            }
+          },
           onStep: (k) => {
             if (!LIVE || LIVE.gen !== myGen) return;
             if (k >= 0) { LIVE.i = f + k; showK(f + k); }
@@ -348,9 +354,9 @@ window.Chinese = (function () {
         });
       };
 
-      // 语音模块没就绪时**绝不假装在播**：先进入"准备中"，等它就绪再自动开读。
-      // （部分手机浏览器 speechSynthesis 会晚几百毫秒才注入）
-      if (Say.ready()) { begin(); return; }
+      // 只有"引擎还没定下来"（页面刚打开那几百毫秒）才需要等一下。
+      // 本机语音、在线朗读**都算可用** → 都直接开始，不让用户点第二次。
+      if (Say.engine() !== 'unknown') { begin(); return; }
 
       LIVE.pending = true;
       LIVE.playing = false;
@@ -359,15 +365,10 @@ window.Chinese = (function () {
       btnPlay.classList.remove('playing');
       if (hint) hint.textContent = '正在准备语音，马上就好…';
 
-      Say.whenReady(good => {
+      Say.whenReady(() => {
         if (!LIVE || LIVE.gen !== myGen) return;
-        if (good) { begin(); return; }
-        LIVE.pending = false;
-        bar.hidden = true;
-        btnPlay.textContent = '🔊 听朗读';
-        if (hint) hint.textContent = Say.diag();
-        UI.toast(Say.diag(), 3600);
-      });
+        begin();
+      }, 900);
     };
 
     const pauseTo = () => {
