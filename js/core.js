@@ -69,6 +69,8 @@
   };
 
   /* ---------- 朗读（Web Speech API，离线可用、免登录） ---------- */
+  /* 0.01 秒静音 WAV（8kHz 单声道 8bit，共 124 字节）—— 用来在用户手势里"解锁" <audio> */
+  const SILENT_WAV = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
   /* 移动端音频解锁：iOS/微信要求语音必须由"用户手势"直接触发。
      下面这个 warmup 在任何一次点击/触摸时被调用，把音频通道打开，
      之后按钮里的 speak 就不会再被 not-allowed。 */
@@ -88,6 +90,14 @@
         u.volume = 0; u.rate = 10;
         speechSynthesis.speak(u);
       }
+      // 3) 把在线朗读用的 <audio> 也"解锁"：趁这次真实手势播一段 0.01 秒静音。
+      //    iOS 上只有被手势解锁过的音频元素，之后才允许程序化连续播放。
+      try {
+        const a = NetTTS.ensure();
+        a.src = SILENT_WAV;
+        const p = a.play();
+        if (p && p.catch) p.catch(() => { });
+      } catch (e) { }
       AUDIO_UNLOCKED = true;
     } catch (e) { }
   }
@@ -107,23 +117,37 @@
       typeof window.SpeechSynthesisUtterance !== 'undefined' &&
       window.speechSynthesis !== null;
   }
-  /* 给用户看的诊断信息（手机上没有控制台，把原因写到提示里） */
+  /* 识别浏览器（只用于诊断，不再拿它劝用户"换浏览器"——用户往往本来就在自带浏览器里） */
+  function browserName() {
+    const ua = navigator.userAgent || '';
+    if (/MicroMessenger/i.test(ua)) return '微信内置浏览器';
+    if (/QQ\/|QQBrowser/i.test(ua)) return 'QQ 浏览器';
+    if (/UCBrowser|UCWEB/i.test(ua)) return 'UC 浏览器';
+    if (/Quark/i.test(ua)) return '夸克浏览器';
+    if (/HuaweiBrowser|HarmonyOS|HUAWEI/i.test(ua)) return '华为/鸿蒙浏览器';
+    if (/MiuiBrowser|XiaoMi|Redmi/i.test(ua)) return '小米浏览器';
+    if (/HeyTapBrowser|OppoBrowser|OPPO/i.test(ua)) return 'OPPO 浏览器';
+    if (/VivoBrowser|vivo/i.test(ua)) return 'vivo 浏览器';
+    if (/SamsungBrowser/i.test(ua)) return '三星浏览器';
+    if (/EdgA|Edg\//i.test(ua)) return 'Edge';
+    if (/FxiOS|Firefox/i.test(ua)) return 'Firefox';
+    if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) return 'Safari';
+    if (/Chrome/i.test(ua)) return 'Chrome 内核浏览器';
+    return '当前浏览器';
+  }
+  /* 说明"为什么本机朗读用不了"——只陈述原因，不给用户开无用的药方 */
   function speechDiag() {
+    const who = browserName();
     const hasSS = typeof window.speechSynthesis !== 'undefined';
     const hasU = typeof window.SpeechSynthesisUtterance !== 'undefined';
-    const ua = navigator.userAgent || '';
-    let who = '当前浏览器';
-    if (/MicroMessenger/i.test(ua)) who = '微信内置浏览器';
-    else if (/QQ\/|QQBrowser/i.test(ua)) who = 'QQ 浏览器';
-    else if (/UCBrowser|UCWEB/i.test(ua)) who = 'UC 浏览器';
-    else if (/baidu|BIDUBrowser/i.test(ua)) who = '百度浏览器';
-    else if (/Quark/i.test(ua)) who = '夸克浏览器';
-    else if (/Safari/i.test(ua) && !/Chrome/i.test(ua)) who = 'Safari';
-    else if (/Chrome/i.test(ua)) who = 'Chrome';
-    if (!hasSS && !hasU) return `${who}不支持语音朗读，请改用「手机自带浏览器」或 Chrome 打开`;
-    if (!hasSS) return `${who}的语音模块还没准备好，请刷新页面再试`;
-    if (!hasU) return `${who}的语音模块缺少发声组件，请换 Chrome 打开`;
-    return `${who}暂时无法朗读，请刷新页面再试`;
+    if (!hasSS && !hasU) return `${who}没有内置语音朗读，已自动改用「在线朗读」`;
+    if (!hasSS) return `${who}的语音模块未提供，已自动改用「在线朗读」`;
+    if (!hasU) return `${who}缺少发声组件，已自动改用「在线朗读」`;
+    return `${who}本机朗读不可用，已自动改用「在线朗读」`;
+  }
+  /* 在线朗读也失败时的提示（这时候才需要用户动手） */
+  function netFailDiag() {
+    return '在线朗读连不上，请检查手机网络后刷新页面；若还不行，请打开「#/diag」把结果发我';
   }
   /* 等待语音模块就绪（最多等 3 秒），就绪后回调 */
   function whenSpeechReady(cb, timeout) {
@@ -137,65 +161,254 @@
     }, 200);
   }
 
+  /* ---------- 在线朗读兜底（设备没有 speechSynthesis 时用） ----------
+   *  背景：部分手机浏览器（某些自带浏览器、微信/QQ 内置、部分鸿蒙机型）
+   *        根本没有 Web Speech 合成能力，`speechSynthesis` 直接是 undefined。
+   *        只靠它，这些设备就永远没有声音 —— 必须有第二条路。
+   *  通道：中文 → 百度翻译 gettts（**有防盗链**，必须 referrerpolicy="no-referrer"）
+   *        英文 → 有道词典 dictvoice（不校验 Referer）
+   *  要点：
+   *    1) **全程复用同一个 <audio> 元素** —— iOS 上只有被用户手势"解锁"过的那个元素
+   *       才允许之后程序化连续播放；每次 new Audio() 第二句就哑了。
+   *    2) 不要设 crossorigin，否则会走 CORS 校验而失败（媒体播放不需要 CORS）。
+   *    3) 百度接口带 Referer 会返回 0 字节空白，referrerpolicy 是硬性要求。
+   *    4) 百度响应有 `Cache-Control: max-age=3600`，预取下一句能明显减少卡顿。
+   * ------------------------------------------------------------------- */
+  const NetTTS = {
+    el: null, gen: 0, cache: {}, fails: 0,
+
+    url(text, lang) {
+      const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+      if (!t) return '';
+      if (lang === 'en') {
+        return 'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(t);
+      }
+      // 百度长文本会截断，超过 170 字先切一段（调用方本来就是逐句播，很少触发）
+      const s = t.length > 170 ? t.slice(0, 170) : t;
+      return 'https://fanyi.baidu.com/gettts?lan=zh&spd=5&source=web&text=' + encodeURIComponent(s);
+    },
+
+    ensure() {
+      if (NetTTS.el && NetTTS.el.parentNode) return NetTTS.el;
+      const a = document.createElement('audio');
+      a.id = 'netTts';
+      a.preload = 'auto';
+      a.setAttribute('referrerpolicy', 'no-referrer');   // 百度防盗链，必须
+      a.setAttribute('playsinline', '');
+      a.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none';
+      document.body.appendChild(a);
+      NetTTS.el = a;
+      return a;
+    },
+
+    /* 预取：用一次性 Audio 把资源拉进浏览器缓存，当前句播完时下一句已就绪 */
+    prefetch(text, lang) {
+      const url = NetTTS.url(text, lang);
+      if (!url || NetTTS.cache[url]) return;
+      NetTTS.cache[url] = true;
+      try {
+        const a = new Audio();
+        a.preload = 'auto';
+        a.setAttribute('referrerpolicy', 'no-referrer');
+        a.src = url;
+        a.load();
+      } catch (e) { }
+    },
+
+    speak(text, opt) {
+      opt = opt || {};
+      const url = NetTTS.url(text, opt.lang);
+      if (!url) { if (opt.onError) opt.onError(); return false; }
+      const a = NetTTS.ensure();
+      const my = ++NetTTS.gen;
+      const alive = () => NetTTS.gen === my && !a.__dead;
+      a.__dead = false;
+      a.onplaying = () => { if (alive()) { NetTTS.fails = 0; if (opt.onStart) opt.onStart(); } };
+      a.onended = () => { if (alive() && opt.onEnd) opt.onEnd(); };
+      a.onerror = () => {
+        if (!alive()) return;
+        NetTTS.fails++;
+        if (opt.onError) opt.onError();
+      };
+      try { a.pause(); } catch (e) { }
+      try { a.currentTime = 0; } catch (e) { }
+      a.src = url;
+      const p = a.play();
+      if (p && typeof p.then === 'function') {
+        p.then(() => { /* onplaying 会再确认一次 */ }).catch(() => {
+          // 自动播放被拦：通常是这次没有用户手势。给一次重试机会，仍失败就交给上层报错
+          if (!alive()) return;
+          setTimeout(() => {
+            if (!alive()) return;
+            const p2 = a.play();
+            if (p2 && p2.catch) p2.catch(() => { if (alive()) { NetTTS.fails++; if (opt.onError) opt.onError(); } });
+          }, 120);
+        });
+      } else {
+        if (opt.onStart) opt.onStart();
+      }
+      return true;
+    },
+
+    stop() {
+      NetTTS.gen++;
+      const a = NetTTS.el;
+      if (!a) return;
+      a.__dead = true;
+      try { a.pause(); } catch (e) { }
+    },
+    pause() { const a = NetTTS.el; if (a) { try { a.pause(); } catch (e) { } } },
+    resume() { const a = NetTTS.el; if (a) { try { a.play(); } catch (e) { } } },
+    get playing() { const a = NetTTS.el; return !!a && !a.paused && !a.ended; }
+  };
+
+  /* ---------- 引擎选择 ----------
+   *  'local' = 浏览器自带语音合成    'net' = 在线朗读    'unknown' = 还在探测
+   *  'unknown' 只出现在页面刚打开的几百毫秒内（加载后会自动探测一次）。
+   * ------------------------------------------------------------------ */
+  let SPEECH_ABSENT = false;   // 探测确认：这台设备没有 Web Speech 合成
+  let FORCE_NET = false;       // 本机朗读试过但不出声 → 判为"有 API 但没引擎"
+  let NET_ONLY = false;        // 强制走在线朗读（网址加 ?forceNet=1，便于排查/对比）
+  try { NET_ONLY = /[?&]forceNet=1/.test(location.search); } catch (e) { }
+  function engine() {
+    if (NET_ONLY || FORCE_NET) return 'net';
+    if (speechReady()) return 'local';
+    if (SPEECH_ABSENT) return 'net';
+    return 'unknown';
+  }
+  /* 统一入口：确定用哪个引擎后执行 run(engine) */
+  function withEngine(run, waitMs) {
+    const e = engine();
+    if (e !== 'unknown') { run(e); return e; }
+    whenSpeechReady(good => {
+      if (!good) SPEECH_ABSENT = true;
+      run(good ? 'local' : 'net');
+    }, waitMs || 800);
+    return 'unknown';
+  }
+  /* 本机朗读"防哑"：安卓上常见"有 speechSynthesis 但系统没装 TTS 引擎"——
+     speak() 既不报错也不出声。这里 1.3 秒内一句都没开始读，就认定本机语音是哑的，
+     记住结论并改用在线朗读重播。 */
+  function guardLocal(started, replayNet) {
+    if (FORCE_NET) return;                       // 已经知道是哑的，不用再等
+    setTimeout(() => {
+      if (started.v || TTS.localOk === true) return;
+      FORCE_NET = true;
+      try { speechSynthesis.cancel(); } catch (e) { }
+      replayNet();
+    }, 1300);
+  }
+  /* 页面加载后静默探测一次：1.6 秒还不出现就认定"这台设备没有本机语音" */
+  (function probeSpeech() {
+    if (speechReady()) return;
+    whenSpeechReady(good => { if (!good) SPEECH_ABSENT = true; }, 1600);
+  })();
+
   const Say = {
-    /* 注意：这是 getter，每次都实时判断，不要改成静态值 */
-    get ok() { return speechReady(); },
+    /* 注意：这是 getter，每次都实时判断，不要改成静态值。
+       语义是"本机语音可用"；本机不可用时 Say 会自动走在线朗读，仍然能发声。 */
+    get ok() { return speechReady() || engine() === 'net'; },
+    get mode() { return engine() === 'local' ? 'local' : 'net'; },
+
     /* 英文朗读：词组（moon cake / sports day / New Year）按空格拆词逐个排队朗读 */
     en(word, rate) {
-      if (!speechReady()) {
-        // 还没就绪：等一会儿，就绪后自动补读
-        whenSpeechReady(good => {
-          if (good) Say.en(word, rate);
-          else UI.toast(speechDiag(), 3600);
-        });
-        return false;
-      }
-      try {
-        const r = rate || (window.APP_CONFIG && APP_CONFIG.EN_SPEAK_RATE) || .8;
-        const t = String(word == null ? '' : word).trim();
-        if (!t) return false;
-        const parts = t.split(/\s+/).filter(Boolean);
-        const vs = VOICES.length ? VOICES : refreshVoices();
-        const enV = vs.find(v => /^en[-_]US/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null;
+      const t = String(word == null ? '' : word).trim();
+      if (!t) return false;
+      const r = rate || (window.APP_CONFIG && APP_CONFIG.EN_SPEAK_RATE) || .8;
 
-        // 关键修复：cancel() 是异步的，紧跟 speak() 会被一起取消（移动端 100% 丢声）。
-        // 做法：先 cancel，等一个 tick 再 speak。
-        speechSynthesis.cancel();
-        const fire = () => {
-          parts.forEach(p => {
-            const u = new SpeechSynthesisUtterance(p);
-            u.lang = 'en-US';
-            u.rate = r;
-            if (enV) u.voice = enV;
-            speechSynthesis.speak(u);
+      const viaNet = () => {
+        const parts = t.split(/\s+/).filter(Boolean);
+        NetTTS.stop();
+        let i = 0;
+        const step = () => {
+          if (i >= parts.length) return;
+          const cur = parts[i++];
+          NetTTS.speak(cur, {
+            lang: 'en',
+            onEnd: () => setTimeout(step, 120),
+            onError: () => setTimeout(step, 120),
           });
         };
-        setTimeout(fire, 60);
+        setTimeout(step, 60);
         return true;
-      } catch (e) { return false; }
+      };
+
+      const viaLocal = () => {
+        try {
+          const parts = t.split(/\s+/).filter(Boolean);
+          const vs = VOICES.length ? VOICES : refreshVoices();
+          const enV = vs.find(v => /^en[-_]US/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null;
+          const started = { v: false };
+          // cancel() 是异步的，紧跟 speak() 会被一起取消（移动端 100% 丢声）→ 等一个 tick
+          speechSynthesis.cancel();
+          setTimeout(() => {
+            parts.forEach(p => {
+              const u = new SpeechSynthesisUtterance(p);
+              u.lang = 'en-US';
+              u.rate = r;
+              if (enV) u.voice = enV;
+              u.onstart = () => { started.v = true; };
+              speechSynthesis.speak(u);
+            });
+          }, 60);
+          guardLocal(started, viaNet);
+          return true;
+        } catch (e) { return viaNet(); }
+      };
+
+      const e = engine();
+      if (e === 'unknown') {           // 刚打开页面，还在探测：定下来后自动播
+        withEngine(eng => { eng === 'local' ? viaLocal() : viaNet(); }, 800);
+        return true;
+      }
+      return e === 'local' ? viaLocal() : viaNet();
     },
+
     /* 中文单句朗读（作文页/练习用） */
     zh(text, rate) {
-      if (!speechReady()) {
-        whenSpeechReady(good => { if (good) Say.zh(text, rate); else UI.toast(speechDiag(), 3600); });
-        return false;
-      }
-      try {
-        const t = String(text == null ? '' : text).trim();
-        if (!t) return false;
-        speechSynthesis.cancel();
-        setTimeout(() => {
-          const u = new SpeechSynthesisUtterance(t);
-          u.lang = 'zh-CN'; u.rate = rate || .9;
-          speechSynthesis.speak(u);
-        }, 60);
+      const t = String(text == null ? '' : text).trim();
+      if (!t) return false;
+      const rr = rate || .9;
+
+      const viaNet = () => {
+        NetTTS.stop();
+        setTimeout(() => { NetTTS.speak(t, { lang: 'zh' }); }, 60);
         return true;
-      } catch (e) { return false; }
+      };
+      const viaLocal = () => {
+        try {
+          const started = { v: false };
+          speechSynthesis.cancel();
+          setTimeout(() => {
+            const u = new SpeechSynthesisUtterance(t);
+            u.lang = 'zh-CN'; u.rate = rr;
+            u.onstart = () => { started.v = true; };
+            speechSynthesis.speak(u);
+          }, 60);
+          guardLocal(started, viaNet);
+          return true;
+        } catch (e) { return viaNet(); }
+      };
+
+      const e = engine();
+      if (e === 'unknown') {
+        withEngine(eng => { eng === 'local' ? viaLocal() : viaNet(); }, 800);
+        return true;
+      }
+      return e === 'local' ? viaLocal() : viaNet();
     },
+
     diag: speechDiag,
+    netDiag: netFailDiag,
+    browser: browserName,
+    /* 本机语音可用？注意：为 false 不代表没声音——还有在线朗读兜底 */
     ready: speechReady,
     whenReady: whenSpeechReady,
-    stop() { try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) { } }
+    engine: engine,
+    stop() {
+      try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) { }
+      NetTTS.stop();
+    }
   };
 
   /* ---------- 中文朗读器（逐页/逐句队列 + 高亮回调） ----------
@@ -209,9 +422,11 @@
   const TTS = {
     /* 注意：这是 getter，每次实时判断。绝不能写成静态布尔值——
        部分手机加载瞬间 speechSynthesis 尚未注入，静态值会永久锁死为 false。 */
-    get ok() { return speechReady(); },
+    get ok() { return speechReady() || engine() !== 'unknown'; },
+    engine: 'local',      // 本次播放实际用哪条通道（play() 时定）
+    localOk: undefined,   // 本机语音是否确认真的出过声
     q: [], i: 0, stopped: true, paused: false, at: 0,
-    onEnd: null, onPart: null, onStep: null,
+    onEnd: null, onPart: null, onStep: null, onMode: null,
 
     voice() {
       if (!speechReady()) return null;
@@ -247,17 +462,10 @@
      *   units : 字符串数组（每个元素是一个朗读单位）
      *   opt.onStep(i, n, unit) 第 i 个单位开始朗读
      *   opt.onEnd()
+     *   opt.onMode('local'|'net')  引擎确定时回调（界面据此提示）
+     * 本机有语音合成就用本机；没有（或本机是哑的）自动改用在线朗读。
      */
     play(text, opt) {
-      if (!speechReady()) {
-        // 语音模块可能只是"还没就绪"——等一会儿再补读，别急着报"不支持"
-        opt = opt || {};
-        whenSpeechReady(good => {
-          if (good) TTS.play(text, opt);
-          else UI.toast(speechDiag(), 3600);
-        });
-        return false;
-      }
       opt = opt || {};
       const cfg = (window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {};
       let units = opt.units;
@@ -270,11 +478,29 @@
       TTS.onEnd = opt.onEnd || null;
       TTS.onStep = opt.onStep || null;
       TTS.onPart = opt.onPart || null;
+      TTS.onMode = opt.onMode || null;
       TTS.rate = opt.rate || cfg.TTS_RATE || .85;
       TTS.pitch = opt.pitch || cfg.TTS_PITCH || 1.05;
-      // 关键：stop() 里的 cancel() 是异步的，必须等一个 tick 再 speak，
-      // 否则移动端会把第一句（甚至整段）一起取消掉 → 点了没声音。
-      setTimeout(() => { if (!TTS.stopped) TTS.next(); }, 70);
+
+      const start = () => {
+        if (TTS.stopped) return;
+        TTS.engine = engine() === 'local' ? 'local' : 'net';
+        if (TTS.onMode) TTS.onMode(TTS.engine);
+        if (TTS.engine === 'net') {
+          // 在线朗读：<audio>.play() 必须留在用户手势的调用栈里（iOS 硬性要求），
+          // 所以这里**不能**套 setTimeout，直接起播。
+          TTS.next();
+          return;
+        }
+        // 本机语音：stop() 里的 cancel() 是异步的，必须等一个 tick 再 speak，
+        // 否则移动端会把第一句（甚至整段）一起取消掉 → 点了没声音。
+        setTimeout(() => { if (!TTS.stopped) TTS.next(); }, 70);
+      };
+
+      if (engine() === 'unknown') {
+        // 刚打开页面，本机语音还在探测：等它一下，超时就走在线朗读
+        whenSpeechReady(good => { if (!good) SPEECH_ABSENT = true; start(); }, 800);
+      } else start();
       return true;
     },
 
@@ -286,42 +512,108 @@
         if (TTS.onEnd) TTS.onEnd();
         return;
       }
+      if (TTS.engine === 'net') return TTS.nextNet();
+      return TTS.nextLocal();
+    },
+
+    /* —— 本机语音合成 —— */
+    nextLocal() {
+      const k = TTS.i, unit = TTS.q[k];
       try {
-        const unit = TTS.q[TTS.i];
         const u = new SpeechSynthesisUtterance(unit);
         u.lang = 'zh-CN';
         const v = TTS.voice(); if (v) u.voice = v;
         u.rate = TTS.rate; u.pitch = TTS.pitch;
-        const k = TTS.i;
         u.onstart = () => { TTS.at = k; if (TTS.onStep) TTS.onStep(k, TTS.q.length, unit); };
-        u.onend = () => { TTS.i++; setTimeout(() => TTS.next(), 60); };
-        u.onerror = () => { TTS.i++; setTimeout(() => TTS.next(), 120); };
+        u.onend = () => {
+          TTS.localOk = true;
+          clearTimeout(TTS.__wd);
+          TTS.i = k + 1; setTimeout(() => TTS.next(), 60);
+        };
+        u.onerror = () => {
+          clearTimeout(TTS.__wd);
+          // 第一句就报错 → 这台机器"有 API 却没语音引擎"，换在线朗读重读这句
+          if (TTS.localOk !== true) return TTS.fallbackToNet(k);
+          TTS.i = k + 1; setTimeout(() => TTS.next(), 120);
+        };
         speechSynthesis.speak(u);
-        // 兜底：个别浏览器不触发 onstart，延迟给一次高亮
+        // 兜底高亮：个别浏览器不触发 onstart
         setTimeout(() => {
           if (!TTS.stopped && TTS.i === k && TTS.at !== k) {
             TTS.at = k; if (TTS.onStep) TTS.onStep(k, TTS.q.length, unit);
           }
         }, 120);
-      } catch (e) { TTS.stopped = true; }
+        // 看门狗：第一句 2.5 秒内既没开始也没结束 → 判定本机朗读是哑的（Android 上很常见，
+        // 系统没装 TTS 引擎时 speak() 就是啥也不发生、也不报错），改用在线朗读。
+        if (TTS.localOk !== true) {
+          clearTimeout(TTS.__wd);
+          TTS.__wd = setTimeout(() => {
+            if (TTS.stopped || TTS.i !== k) return;
+            if (TTS.at === k) return;                       // 已经出声了，正常
+            TTS.fallbackToNet(k);
+          }, 2500);
+        }
+      } catch (e) { TTS.fallbackToNet(k); }
+    },
+
+    /* 本机语音不可用 → 改用在线朗读，并从第 k 句重读（不跳句） */
+    fallbackToNet(k) {
+      if (TTS.stopped || TTS.engine === 'net') return;
+      // 记住这台机器"有 API 但不出声"，之后直接走在线，别再每句都白等 2.5 秒
+      FORCE_NET = true;
+      TTS.engine = 'net';
+      TTS.i = k; TTS.at = -1;
+      try { speechSynthesis.cancel(); } catch (e) { }
+      if (TTS.onMode) TTS.onMode('net');
+      setTimeout(() => { if (!TTS.stopped) TTS.next(); }, 60);
+    },
+
+    /* —— 在线朗读（<audio> 播放，任何浏览器都能出声） —— */
+    nextNet() {
+      const k = TTS.i, unit = TTS.q[k];
+      if (TTS.q[k + 1]) NetTTS.prefetch(TTS.q[k + 1], 'zh');   // 预取下一句，减少卡顿
+      let marked = false;
+      const mark = () => {
+        if (marked || TTS.stopped || TTS.i !== k) return;
+        marked = true;
+        TTS.at = k;
+        if (TTS.onStep) TTS.onStep(k, TTS.q.length, unit);
+      };
+      NetTTS.speak(unit, {
+        lang: 'zh',
+        onStart: mark,
+        onEnd: () => { if (TTS.i !== k) return; TTS.i = k + 1; setTimeout(() => TTS.next(), 40); },
+        onError: () => {
+          if (TTS.i !== k) return;
+          TTS.netFails = (TTS.netFails || 0) + 1;
+          if (TTS.netFails >= 3 && !TTS.__netWarned) { TTS.__netWarned = true; UI.toast(netFailDiag(), 4200); }
+          TTS.i = k + 1; setTimeout(() => TTS.next(), 150);
+        }
+      });
+      setTimeout(mark, 900);   // 音频起播偏慢时，高亮别落后太多
     },
 
     pause() {
-      if (!speechReady() || TTS.stopped) return;
+      if (TTS.stopped) return;
       TTS.paused = true;
-      try { speechSynthesis.pause(); } catch (e) { }
+      if (TTS.engine === 'net') NetTTS.pause();
+      else { try { speechSynthesis.pause(); } catch (e) { } }
     },
     resume() {
-      if (!speechReady() || TTS.stopped) return;
+      if (TTS.stopped) return;
       TTS.paused = false;
-      try { speechSynthesis.resume(); } catch (e) { }
+      if (TTS.engine === 'net') NetTTS.resume();
+      else { try { speechSynthesis.resume(); } catch (e) { } }
     },
     toggle() { TTS.paused ? TTS.resume() : TTS.pause(); return TTS.paused; },
     stop() {
       TTS.stopped = true; TTS.paused = false; TTS.q = []; TTS.i = 0; TTS.at = -1;
+      TTS.localOk = undefined; TTS.netFails = 0; TTS.__netWarned = false;
+      clearTimeout(TTS.__wd);
       try { speechSynthesis.cancel(); } catch (e) { }
+      NetTTS.stop();
     },
-    get busy() { return speechReady() && !TTS.stopped; }
+    get busy() { return !TTS.stopped; }
   };
   let VOICES = [];
   function refreshVoices() {
@@ -469,126 +761,7 @@
     }
   };
 
-  /* ---------- 课文朗读播放器：抖音内嵌（免登录）+ 本机朗读兜底 ---------- */
-  const Player = {
-    open(o) {
-      o = o || {};
-      const cfg = (window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {};
-      const vid = Douyin.parseVid(o.vid);
-      const pageUrl = Douyin.pageUrl(o.vid || o.url, o.kw || ((o.title || '') + ' 课文朗读').trim());
-      const title = o.title || '课文朗读';
-      const tip = (o.vid && typeof o.vid === 'object' && o.vid.tip) || o.tip || '';
-
-      // 竖版 9:16，最大不超过屏幕
-      const winW = window.innerWidth, winH = window.innerHeight;
-      let w = Math.min(440, winW - 28), h = Math.round(w * 16 / 9);
-      const maxH = Math.round(winH * 0.56);
-      if (h > maxH) { h = maxH; w = Math.round(h * 9 / 16); }
-
-      const hasVid = !!vid;
-      const autoplay = cfg.AUTOPLAY !== false;
-      const showDy = cfg.SHOW_DOUYIN_BTN !== false;
-
-      const html = `
-        <div class="play-head">
-          <div class="play-title">🎧 ${UI.esc(title)}</div>
-          <button class="play-x" data-close aria-label="关闭">✕</button>
-        </div>
-        ${hasVid ? `
-          <div class="play-stage" style="width:${w}px;height:${h}px">
-            <iframe src="${Douyin.embedUrl(vid, autoplay)}"
-              referrerpolicy="unsafe-url" allow="autoplay; encrypted-media; fullscreen"
-              allowfullscreen scrolling="no" frameborder="0"></iframe>
-          </div>
-          ${tip ? `<div class="play-tip">${UI.esc(tip)}</div>` : ''}
-        ` : `
-          <div class="play-empty" style="width:${Math.max(240, w)}px">
-            <div class="pe-ico">📢</div>
-            <div class="pe-t">这课还没录朗读视频</div>
-            <div class="pe-s">没关系～ 点下面的大按钮，<br>我直接把课文读给你听</div>
-          </div>
-        `}
-        <div class="play-bar">
-          <button class="pbtn ${hasVid ? 'ghost' : 'bg-pk big'}" id="pRead">
-            <span>🔊</span><b>${hasVid ? '跟着读一遍' : '点我听朗读'}</b>
-          </button>
-          <button class="pbtn ghost" id="pPause"><span>⏸</span><b>暂停</b></button>
-        </div>
-        <div class="play-stat" id="pStat">${hasVid ? '视频来自抖音，不用登录就能看；没自动播就点一下画面' : ''}</div>
-        ${showDy ? `<a class="play-link" id="pDouyin" href="${UI.esc(pageUrl)}" target="_blank" rel="noopener">在抖音里看 ›</a>` : ''}
-      `;
-
-      const mask = Modal.open(html, { cls: 'modal-play' });
-      const btnR = mask.querySelector('#pRead');
-      const btnP = mask.querySelector('#pPause');
-      const stat = mask.querySelector('#pStat');
-      let reading = false;
-
-      const setStat = s => { if (stat) stat.textContent = s; };
-      const setReadBtn = (label) => { btnR.querySelector('b').textContent = label; };
-
-      btnR.onclick = () => {
-        SFX.tap();
-        if (reading) {
-          TTS.stop(); reading = false;
-          setReadBtn(hasVid ? '跟着读一遍' : '点我听朗读');
-          setStat(hasVid ? '视频来自抖音，不用登录就能看；没自动播就点一下画面' : '');
-          return;
-        }
-        const ok = TTS.play(o.text, {
-          onPart: (i, n) => { setStat(`正在读第 ${i} / ${n} 段…`); },
-          onEnd: () => {
-            reading = false;
-            setReadBtn('再读一遍');
-            setStat('读完啦，真棒！✅');
-          }
-        });
-        if (ok) { reading = true; setReadBtn('停止朗读'); }
-      };
-
-      btnP.onclick = () => {
-        if (!TTS.busy) { UI.toast('先点「🔊」开始朗读哦'); return; }
-        const p = TTS.toggle();
-        btnP.querySelector('b').textContent = p ? '继续' : '暂停';
-        btnP.querySelector('span').textContent = p ? '▶' : '⏸';
-        setStat(p ? '暂停中…' : '继续朗读中…');
-      };
-
-      // 没录视频 → 打开就自动读，孩子不用多点一下
-      // 注意：iOS / 微信内置浏览器要求朗读必须由用户手势触发，异步自动调用会被静音
-      const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
-        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      const isWeixin = /MicroMessenger/i.test(navigator.userAgent);
-      if (!hasVid) {
-        // 语音模块可能"还没就绪"（部分手机 WebView 延迟注入），不能立刻禁用按钮。
-        // 先按可用处理，若 3 秒后仍不可用再禁用并给诊断提示。
-        if (cfg.AUTO_TTS !== false && !isIOS && !isWeixin) {
-          setTimeout(() => btnR.click(), 260);
-        } else {
-          setStat('点上面的大按钮，我就开始读～');
-        }
-        whenSpeechReady(good => {
-          if (good) return;
-          setStat('📱 ' + speechDiag());
-          btnR.disabled = true;
-          btnR.style.opacity = '.45';
-        });
-      }
-
-      // 视频加载兜底提示
-      if (hasVid) {
-        const fr = mask.querySelector('.play-stage iframe');
-        let loaded = false;
-        if (fr) fr.onload = () => { loaded = true; };
-        setTimeout(() => {
-          if (!loaded) setStat('视频加载有点慢？点「🔊」先听本机朗读');
-        }, 4000);
-      }
-      return mask;
-    }
-  };
-
   window.DB = DB; window.UI = UI; window.SFX = SFX; window.Say = Say; window.TTS = TTS;
-  window.FX = FX; window.Img = Img; window.Modal = Modal; window.Douyin = Douyin; window.Player = Player;
+  window.FX = FX; window.Img = Img; window.Modal = Modal; window.Douyin = Douyin;
   document.addEventListener('DOMContentLoaded', FX.init);
 })();
