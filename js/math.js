@@ -5,9 +5,10 @@ window.MathMod = (function () {
   /* ---------------- 模拟 OCR ----------------
    * 想接真 OCR：把 APP_CONFIG.MATH_OCR 设成 true，然后把下面的
    * Promise 换成自己的接口请求，返回 { text:'识别出的题目', kp:'知识点id' } 即可。
+   * 注意：请用第二个参数 dataUrl（**已经裁剪好的那一题**），不要用原始整张照片。
    */
-  function recognizeImage(file) {
-    if (APP_CONFIG.MATH_OCR && window.MyOCR) return window.MyOCR(file);
+  function recognizeImage(file, dataUrl) {
+    if (APP_CONFIG.MATH_OCR && window.MyOCR) return window.MyOCR(dataUrl || file, file);
     return new Promise(resolve => {
       setTimeout(() => resolve(window.MOCK_OCR[Math.floor(Math.random() * window.MOCK_OCR.length)]), 60);
     });
@@ -55,7 +56,7 @@ window.MathMod = (function () {
     return `
       <div class="page-head"><span class="back" data-go="#/home">‹</span><h2>数学</h2></div>
       <p class="big-title">把错题拍下来吧！</p>
-      <p class="sub-title">拍一张照片，自动生成同类型练习题</p>
+      <p class="sub-title">拍一张照片，框住这一道题，自动生成同类型练习题</p>
 
       <button class="big-btn bg-b" id="bCam"><span class="ico">📷</span>
         <span>拍照上传<small>手机会打开相机</small></span></button>
@@ -70,8 +71,9 @@ window.MathMod = (function () {
         <div style="font-weight:800;margin-bottom:6px">怎么用？</div>
         <div style="color:var(--ink2);font-size:16px;line-height:1.9">
           ① 点「拍照」或直接选一张错题照片<br>
-          ② 自动识别这道题的知识点，生成 ${N()} 道同类新题<br>
-          ③ 做完自动判分，每道题都有解析<br>
+          ② <b>拖动框，只框住这一道题</b>（一张照片上有好几题时尤其有用）<br>
+          ③ 自动识别这道题的知识点，生成 ${N()} 道同类新题<br>
+          ④ 做完自动判分，每道题都有解析<br>
           <span style="font-size:14px">（照片保存在本机，不会上传到任何服务器）</span>
         </div>
       </div>`;
@@ -87,12 +89,35 @@ window.MathMod = (function () {
     box.innerHTML = `<div class="card loading"><div class="spin"></div>
       <div class="step-line">正在读取照片…</div></div>`;
 
+    const MAX = APP_CONFIG.MATH_MAX_PHOTO || 800;
+    const WANT_CROP = APP_CONFIG.MATH_CROP !== false;
+    // 要裁剪时先把原图读大一点（裁出来的那一题才够清晰给 OCR 认）
     let dataUrl;
     try {
-      dataUrl = await Img.fileToDataURL(f, APP_CONFIG.MATH_MAX_PHOTO || 800);
+      dataUrl = await Img.fileToDataURL(f, WANT_CROP ? Math.max(1400, MAX * 2) : MAX);
     } catch (e) {
       box.innerHTML = `<div class="card">读取失败，换一张图片试试～</div>`;
       return;
+    }
+
+    /* ---- 框选一题 ----
+       一张作业照片上常常有好几道题，整张送进去会认错知识点。
+       所以先让用户把框拉到"这一道题"上，只把框里的那块送去识别。
+       不想要这一步可以把 APP_CONFIG.MATH_CROP 设成 false。 */
+    if (WANT_CROP) {
+      box.innerHTML = '';
+      box.style.display = 'none';
+      let picked = null;
+      try {
+        picked = await Crop.open(dataUrl, { title: '框住你要练的那道题' });
+      } finally {
+        box.style.display = '';
+      }
+      if (picked === null) {          // 用户点了 ✕
+        box.innerHTML = `<div class="card" style="text-align:center;color:var(--ink2)">已取消，重新选一张吧</div>`;
+        return;
+      }
+      dataUrl = await Img.resizeDataURL(picked, MAX);
     }
 
     box.innerHTML = `<div class="card loading"><div class="spin"></div>
@@ -100,7 +125,7 @@ window.MathMod = (function () {
       <img src="${dataUrl}" style="max-height:180px;margin-top:12px;border-radius:14px"></div>`;
 
     SFX.tap();
-    const r = await recognizeImage(f);
+    const r = await recognizeImage(f, dataUrl);
     let kp = guessKp(r.text) || (r.kp && KP_MAP[r.kp]) || MATH_KP[0];
 
     const s = newSession(kp.id, r.text, dataUrl);
