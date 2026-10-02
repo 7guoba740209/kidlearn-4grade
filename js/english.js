@@ -5,7 +5,7 @@ window.English = (function () {
   let G = null;   // 当前游戏状态
 
   const getBook = id => EN_BOOKS.find(b => b.id === id) || EN_BOOKS[0];
-  const getMod = (b, id) => b.modules.find(m => m.id === id) || b.modules[0];
+  const getMod = (b, id) => b.units.find(m => m.id === id) || b.units[0];
 
   /* 可发音：支持纯单词与词组（moon cake / sports day / New Year / come on）
    * —— 只排除明显不是英文的条目（数字、纯符号） */
@@ -22,11 +22,11 @@ window.English = (function () {
   function books() {
     return `<div class="page-head"><span class="back" data-go="#/home">‹</span><h2>英语</h2></div>
       <p class="big-title">选一册开始闯关</p>
-      <p class="sub-title">外研版（三年级起）· 边玩边背单词</p>
+      <p class="sub-title">人教版（三年级起点）· 边玩边背单词</p>
       ${EN_BOOKS.map(b => `
         <button class="big-btn ${b.id === '4a' ? 'bg-g' : 'bg-p'}" data-go="#/en/${b.id}">
           <span class="ico">${b.id === '4a' ? '🔠' : '🎧'}</span>
-          <span>${b.name}<small>${b.sub} · ${b.modules.length} 个模块</small></span>
+          <span>${b.name}<small>${b.sub} · ${b.units.length} 个单元</small></span>
         </button>`).join('')}`;
   }
 
@@ -37,8 +37,8 @@ window.English = (function () {
       <div style="display:flex;gap:8px;margin-bottom:6px">
         ${EN_BOOKS.map(x => `<span class="chip small ${x.id === b.id ? 'b' : ''}" ${x.id === b.id ? '' : `data-go="#/en/${x.id}"`}>${x.name}</span>`).join('')}
       </div>
-      <p class="sub-title">挑一个模块，马上开玩</p>
-      ${b.modules.map(m => `
+      <p class="sub-title">挑一个单元，马上开玩</p>
+      ${b.units.map(m => `
         <div class="unit-card" style="border-left-color:#35C77E">
           <h3>${m.name} · ${m.topic}</h3>
           <div style="color:var(--ink2);font-size:15px;margin-bottom:10px">共 ${m.words.length} 个单词</div>
@@ -64,10 +64,10 @@ window.English = (function () {
               ${UI.esc(w.zh)}<span class="spk">🔊</span></span>
           </div>`).join('')}
       </div>
-      <a class="big-btn bg-o" href="#/en/${b.id}"><span class="ico">🎮</span><span>玩这个模块的游戏</span></a>`;
+      <a class="big-btn bg-o" href="#/en/${b.id}"><span class="ico">🎮</span><span>玩这个单元的游戏</span></a>`;
   }
 
-  /* ---------- 单个模块：游戏入口 + 单词速览 ---------- */
+  /* ---------- 单个单元：游戏入口 + 单词速览 ---------- */
   function modPage(p) {
     const b = getBook(p[1]), m = getMod(b, p[2]);
     const games = [
@@ -282,7 +282,7 @@ window.English = (function () {
     SFX.win(); FX.burst(80);
     const mode0 = G.mode;
     const bid = (location.hash.split('/')[4]) || EN_BOOKS[0].id;
-    const mid = (location.hash.split('/')[5]) || getBook(bid).modules[0].id;
+    const mid = (location.hash.split('/')[5]) || getBook(bid).units[0].id;
     // 结算页也把本模块单词全部列出来，随时点读复习
     const list = getMod(getBook(bid), mid).words;
     box.innerHTML = `
@@ -302,7 +302,7 @@ window.English = (function () {
         </div>
         <div class="grid2" style="margin-top:16px">
           <button class="btn bg-g" id="fAgain"><span>🔄</span>再玩一次</button>
-          <a class="btn ghost" href="#/en/${bid}"><span>📚</span>换个模块</a>
+          <a class="btn ghost" href="#/en/${bid}"><span>📚</span>换个单元</a>
         </div>
       </div>`;
     document.getElementById('fAgain').onclick = () => startGame(mode0, bid, mid);
