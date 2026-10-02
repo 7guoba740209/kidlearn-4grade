@@ -2,6 +2,25 @@
 window.Chinese = (function () {
   const FALLBACK_BOOK = '4a';
 
+  /* ---------- 合并课文全文 ----------
+   *  data/chinese-data.js 里原本只放了「精彩片段」；data/full-4a.js / full-4b.js
+   *  提供完整课文。这里在启动时把全文覆盖上去，并标记 full:true。
+   *  所以维护课文内容只需要改 data/full-*.js —— 页面、朗读都不用动。
+   * ------------------------------------------------------------ */
+  (function mergeFullText() {
+    const T = window.CN_FULL_TEXT || {};
+    let n = 0;
+    (window.CN_BOOKS || []).forEach(book => {
+      (book.units || []).forEach(unit => {
+        (unit.lessons || []).forEach(l => {
+          const t = T[book.id + '-' + l.no];
+          if (t && String(t).trim().length) { l.text = String(t).trim(); l.full = true; n++; }
+        });
+      });
+    });
+    window.__CN_FULL_COUNT = n;
+  })();
+
   function findBook(id) { return CN_BOOKS.find(b => b.id === id) || CN_BOOKS[0]; }
   function findUnit(book, uid) { return book.units.find(u => u.id === uid); }
   function findLesson(unit, no) { return unit.lessons.find(l => l.no === no); }
@@ -183,17 +202,19 @@ window.Chinese = (function () {
       <div class="text-box" id="textBox">
         <div class="by">${UI.esc(lesson.by || '')}</div>
         ${body}
-        ${lesson.full ? '' : `<p style="text-indent:0;color:var(--ink2);font-size:15px">—— 以上为课文片段示例，完整原文可在 data/chinese-data.js 中补充 ——</p>`}
       </div>
 
       <div class="card" style="margin-top:14px">
         <div style="font-weight:800;margin-bottom:6px">📌 这一课</div>
         <div style="color:var(--ink2);font-size:16px">
           点「🔊 听朗读」，声音会一句一句读出来，读到的句子会变颜色。<br>
+          朗读时你可以<b>自己上下翻看</b>，翻看后会自动暂停跟随，点底部「⬇ 回到正在读的地方」再跟上。<br>
           想换成本课真人朗读视频也可以：打开 <b>data/config.js</b>，
           在 CN_LINKS 里加一行 <b>'${book.id}-${lesson.no}': '视频ID或链接'</b>。
         </div>
       </div>
+
+      <button class="follow-btn" id="sbFollow" hidden>⬇ 回到正在读的地方</button>
 
       <div class="songbar" id="songBar" hidden>
         <button class="sb-btn" id="sbPrev" aria-label="上一句">‹</button>
@@ -264,7 +285,14 @@ window.Chinese = (function () {
     if (!LIVE) return;
     TTS.stop();
     if (LIVE.bar) LIVE.bar.hidden = true;
+    if (LIVE.followBtn) LIVE.followBtn.hidden = true;
     LIVE.els.forEach(e => e.classList.remove('now'));
+    if (LIVE.onScroll) window.removeEventListener('scroll', LIVE.onScroll);
+    if (LIVE.onWheel) window.removeEventListener('wheel', LIVE.onWheel);
+    if (LIVE.onKey) window.removeEventListener('keydown', LIVE.onKey);
+    if (LIVE.onTouchStart) window.removeEventListener('touchstart', LIVE.onTouchStart);
+    if (LIVE.onTouchMove) window.removeEventListener('touchmove', LIVE.onTouchMove);
+    clearTimeout(LIVE.progTimer);
     LIVE.gen++;          // 让所有挂起的"等待语音就绪"回调失效
     LIVE = null;
   }
@@ -276,23 +304,21 @@ window.Chinese = (function () {
     const br = document.getElementById('btnRead');
     if (!box || !br) return;
 
-    const lines = TTS.splitSentences(lesson.text);
+    const paras = UI.$$('p[data-l]', box);
+
+    /* 逐段切句：这样每一句"属于哪一段"是**精确算出来的**，
+       不再用长度累加去猜 —— 全文课文的段落多，猜法会错位。 */
+    const lines = [];
+    const owner = [];
+    paras.forEach(pel => {
+      const t = (pel.textContent || '').trim();
+      if (!t) return;
+      TTS.splitSentences(t).forEach(s => { lines.push(s); owner.push(pel); });
+    });
+
     if (!lines.length) {
       br.onclick = () => UI.toast('这一课还没有课文内容哦');
       return;
-    }
-
-    // 建立「句子 → 屏幕段落」映射：按顺序把句子归属到段落
-    const paras = UI.$$('p[data-l]', box);
-    const owner = [];           // owner[句序号] = 段落元素
-    {
-      let pi = 0, acc = 0;
-      lines.forEach(s => {
-        // 找到包含该句起点的段落：用长度累加近似
-        while (pi < paras.length - 1 && acc + paras[pi].textContent.length < s.length && acc > 0) { acc = 0; pi++; }
-        owner.push(paras[pi] || null);
-        acc += s.length;
-      });
     }
 
     const bar = document.getElementById('songBar');
@@ -300,13 +326,89 @@ window.Chinese = (function () {
     const btnPrev = document.getElementById('sbPrev');
     const btnNext = document.getElementById('sbNext');
     const btnClose = document.getElementById('sbClose');
+    const btnFollow = document.getElementById('sbFollow');
     const hint = document.getElementById('readHint');
 
     LIVE = {
-      lines, els: lines.map((_, i) => owner[i]).filter(Boolean),
+      lines, els: owner.slice(),
       i: -1, playing: false, pending: false, gen: 0,
-      bar, btnPlay, hint
+      follow: true, prog: false, progTimer: null,
+      bar, btnPlay, hint, followBtn: btnFollow, onScroll: null
     };
+
+    /* ---- 自动跟随 / 用户自由滚动 ----
+       读一句就 scrollIntoView 会把用户正在翻页的手"打回去"。
+       判定用户滚动**不能只看 scroll 事件 + 时间窗**：程序平滑滚动之后紧接着的
+       用户滚动会被误判成"程序滚动"而忽略，用户就会一直被拉回去。
+       所以主判据用**明确的用户意图事件**：
+         · 手机：touchmove 纵向位移 > 10px（相当于手指在滑动，不是点按）
+         · 电脑：wheel 滚轮
+         · 键盘：方向键 / PageUp / PageDown / 空格 / Home / End
+       命中就停止跟随，并在底部给一个「回到正在读的地方」按钮；
+       高亮仍然照常跟着读，只是不再自动滚屏。 */
+    const markProg = () => {
+      if (!LIVE) return;
+      LIVE.prog = true;
+      clearTimeout(LIVE.progTimer);
+      LIVE.progTimer = setTimeout(() => { if (LIVE) LIVE.prog = false; }, 700);
+    };
+
+    const jumpTo = (k) => {
+      const el = owner[k];
+      if (!el) return;
+      markProg();
+      try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { }
+      [140, 320, 520].forEach(ms => setTimeout(markProg, ms));
+    };
+
+    const showFollowBtn = () => {
+      if (!btnFollow || !LIVE) return;
+      btnFollow.hidden = !(LIVE.playing && !LIVE.follow);
+    };
+
+    const stopFollow = () => {
+      if (!LIVE || !LIVE.follow || !LIVE.playing) return;
+      LIVE.follow = false;
+      showFollowBtn();
+      if (hint) hint.textContent = `正在朗读 第 ${LIVE.i + 1} / ${LIVE.lines.length} 句 · 已暂停跟随，可自由上下翻看`;
+    };
+
+    const setFollow = (v) => {
+      if (!LIVE) return;
+      LIVE.follow = !!v;
+      showFollowBtn();
+      if (v && LIVE.i >= 0) jumpTo(LIVE.i);
+    };
+
+    /* 兜底：拖动滚动条、惯性滚动等（没有上面那些事件时）也能识别 */
+    LIVE.onScroll = () => {
+      if (!LIVE) return;
+      if (LIVE.prog) {
+        clearTimeout(LIVE.progTimer);
+        LIVE.progTimer = setTimeout(() => { if (LIVE) LIVE.prog = false; }, 300);
+        return;
+      }
+      stopFollow();
+    };
+    LIVE.onWheel = () => stopFollow();
+    LIVE.onKey = (e) => {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].indexOf(e.key) >= 0) stopFollow();
+    };
+    LIVE.onTouchStart = (e) => {
+      LIVE.touchY = (e.touches && e.touches[0]) ? e.touches[0].clientY : null;
+    };
+    LIVE.onTouchMove = (e) => {
+      if (LIVE.touchY == null || !e.touches || !e.touches[0]) return;
+      if (Math.abs(e.touches[0].clientY - LIVE.touchY) > 10) stopFollow();
+    };
+
+    window.addEventListener('scroll', LIVE.onScroll, { passive: true });
+    window.addEventListener('wheel', LIVE.onWheel, { passive: true });
+    window.addEventListener('keydown', LIVE.onKey);
+    window.addEventListener('touchstart', LIVE.onTouchStart, { passive: true });
+    window.addEventListener('touchmove', LIVE.onTouchMove, { passive: true });
+
+    if (btnFollow) btnFollow.onclick = () => { SFX.tap(); setFollow(true); };
 
     const showK = (k) => {
       const el = owner[k];
@@ -314,8 +416,11 @@ window.Chinese = (function () {
       LIVE.i = k;
       paras.forEach(p => p.classList.remove('now'));
       el.classList.add('now');
-      try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) { }
-      if (hint) hint.textContent = `正在朗读 第 ${k + 1} / ${lines.length} 句`;
+      if (LIVE.follow) jumpTo(k);      // 只在"跟随中"才自动滚屏
+      if (hint) {
+        hint.textContent = `正在朗读 第 ${k + 1} / ${lines.length} 句`
+          + (LIVE.follow ? '' : ' · 已暂停跟随，可自由上下翻看');
+      }
     };
 
     // 直接用「句」为单位播放（更贴合"读到哪句哪句变色"）
@@ -328,9 +433,13 @@ window.Chinese = (function () {
         if (!LIVE || LIVE.gen !== myGen) return;
         LIVE.pending = false;
         LIVE.playing = true;
+        // 每次新起一次播放都恢复"自动跟随"，并立刻把当前句滚到屏幕中间
+        LIVE.follow = true;
         btnPlay.textContent = '⏸ 暂停';
         btnPlay.classList.add('playing');
         bar.hidden = false;
+        showFollowBtn();
+        jumpTo(f);
         TTS.play(null, {
           units: lines.slice(f),
           onMode: (m) => {
@@ -349,6 +458,7 @@ window.Chinese = (function () {
             paras.forEach(p => p.classList.remove('now'));
             btnPlay.textContent = '🔄 再读一遍';
             btnPlay.classList.remove('playing');
+            showFollowBtn();
             if (hint) hint.textContent = '读完啦，真棒！✅ 想再听就点「再读一遍」';
           }
         });
@@ -379,6 +489,7 @@ window.Chinese = (function () {
       LIVE.playing = false;
       btnPlay.textContent = '▶ 继续';
       btnPlay.classList.remove('playing');
+      showFollowBtn();
     };
 
     br.onclick = () => {
@@ -405,14 +516,16 @@ window.Chinese = (function () {
       }
     };
 
-    btnPrev.onclick = () => { SFX.tap(); pauseTo(); play(Math.max(0, LIVE.i - 1)); };
-    btnNext.onclick = () => { SFX.tap(); pauseTo(); play(Math.min(lines.length - 1, LIVE.i + 1)); };
+    // 上一句 / 下一句 / 点某一句 —— 都是用户主动指定位置，恢复自动跟随
+    btnPrev.onclick = () => { SFX.tap(); pauseTo(); play(Math.max(0, LIVE.i - 1)); setFollow(true); };
+    btnNext.onclick = () => { SFX.tap(); pauseTo(); play(Math.min(lines.length - 1, LIVE.i + 1)); setFollow(true); };
     btnClose.onclick = () => {
       SFX.tap();
       if (!LIVE) return;
       LIVE.gen++; LIVE.pending = false; LIVE.playing = false;
       TTS.stop();
       bar.hidden = true;
+      showFollowBtn();
       paras.forEach(p => p.classList.remove('now'));
       if (hint) hint.textContent = '🔊 点「听朗读」，声音会一句一句读出来';
     };
@@ -423,7 +536,7 @@ window.Chinese = (function () {
       pel.onclick = () => {
         if (!LIVE) return;
         const k = owner.findIndex(o => o === pel);
-        if (k >= 0) { SFX.tap(); pauseTo(); play(k); }
+        if (k >= 0) { SFX.tap(); pauseTo(); play(k); setFollow(true); }
       };
     });
   }
