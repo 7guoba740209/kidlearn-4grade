@@ -37,7 +37,7 @@ kidlearn/
 │   ├── full-4a.js          ★ 四年级上册「课文全文」，55 课逐课可改
 │   ├── full-4b.js          ★ 四年级下册「课文全文」
 │   ├── essay-data.js       ★ 优秀作文：每个单元 3 篇范文（题目 / 作者 / 字数 / 亮点 / 正文）
-│   ├── english-data.js     ★ 英语单词：Module → 单词（英文 + 中文）
+│   ├── english-data.js     ★ 英语单词：Unit 1~6 → 单词（英文 + 中文），人教版三起四上/四下
 │   └── math-data.js        ★ 数学知识点：知识点清单 + 自动出题生成器 + 模拟 OCR 语料
 └── js/
     ├── core.js             存储 / 音效 / 特效 / 图片处理 / 框选裁剪 / 朗读（本机+在线双通道）/ 弹层
@@ -129,7 +129,13 @@ CN_LINKS: {
 把同一课的 `text` 换成完整原文、并把 `full` 改成 `true` 即可，不用改任何代码。
 
 ### 3. 换 / 加英语单词
-直接编辑 `data/english-data.js` 的 `words` 数组（现在是外研版三起四上、四下 M1–M10 的教材词表）。
+直接编辑 `data/english-data.js`。结构是 `units[] → words[]`：
+```js
+{ id: 'U1', name: 'Unit 1', topic: 'My classroom 我的教室',
+  words: [ { en: 'classroom', zh: '教室' }, … ] }
+```
+现在是**人教版（三年级起点）四年级上/下册**，每册 6 个单元，词条照抄课本附录
+「单元词汇表」（四上 84 词、四下 104 词）。加单元就照着上面格式复制一段。
 
 ### 4. 加数学知识点
 在 `data/math-data.js` 的 `MATH_KP` 数组里照抄一条：
