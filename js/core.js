@@ -732,6 +732,174 @@
         fr.onerror = reject;
         fr.readAsDataURL(file);
       });
+    },
+    /* 把已有的 dataURL 再缩放到最长边 maxSide（裁剪之后压缩用） */
+    resizeDataURL(dataUrl, maxSide) {
+      return new Promise(resolve => {
+        const im = new Image();
+        im.onload = () => {
+          let { width: w, height: h } = im;
+          const m = maxSide || 800;
+          if (Math.max(w, h) > m) { const k = m / Math.max(w, h); w = Math.round(w * k); h = Math.round(h * k); }
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          cv.getContext('2d').drawImage(im, 0, 0, w, h);
+          try { resolve(cv.toDataURL('image/jpeg', 0.78)); } catch (e) { resolve(dataUrl); }
+        };
+        im.onerror = () => resolve(dataUrl);
+        im.src = dataUrl;
+      });
+    },
+    /* 取得 dataURL 的像素尺寸 */
+    sizeOf(dataUrl) {
+      return new Promise(resolve => {
+        const im = new Image();
+        im.onload = () => resolve({ w: im.naturalWidth || 0, h: im.naturalHeight || 0 });
+        im.onerror = () => resolve({ w: 0, h: 0 });
+        im.src = dataUrl;
+      });
+    }
+  };
+
+  /* ---------- 图片：框选裁剪 ----------
+   *  Crop.open(dataUrl, opt) → Promise<string|null>
+   *    确认裁剪 → resolve 裁剪后的 dataURL
+   *    用整张图 → resolve 原 dataURL
+   *    取消     → resolve null
+   *  支持鼠标与触摸（Pointer Events），四角可拉伸、框内可拖动。
+   * ------------------------------------------------------------ */
+  const Crop = {
+    open(dataUrl, opt) {
+      opt = opt || {};
+      return new Promise(resolve => {
+        const mask = document.createElement('div');
+        mask.className = 'crop-mask';
+        mask.innerHTML = `
+          <div class="crop-head">
+            <span class="crop-title">${UI.esc(opt.title || '框住这道题')}</span>
+            <button class="crop-x" id="cropCancel" aria-label="取消">✕</button>
+          </div>
+          <div class="crop-scroll" id="cropScroll">
+            <div class="crop-wrap" id="cropWrap">
+              <img id="cropImg" src="${dataUrl}" alt="">
+              <div class="crop-box" id="cropBox">
+                <i class="crop-h" data-h="tl"></i><i class="crop-h" data-h="tr"></i>
+                <i class="crop-h" data-h="bl"></i><i class="crop-h" data-h="br"></i>
+              </div>
+            </div>
+          </div>
+          <div class="crop-tip">拖动四角调整大小，框住<b>这一道题</b>，再点下面的按钮</div>
+          <div class="crop-actions">
+            <button class="btn ghost" id="cropAll">用整张图</button>
+            <button class="btn bg-g" id="cropOk">✅ 就用框住的这块</button>
+          </div>`;
+        document.body.appendChild(mask);
+        requestAnimationFrame(() => mask.classList.add('on'));
+
+        const scroller = mask.querySelector('#cropScroll');
+        const img = mask.querySelector('#cropImg');
+        const wrap = mask.querySelector('#cropWrap');
+        const box = mask.querySelector('#cropBox');
+        let nat = { w: 1, h: 1 };
+        let disp = { w: 1, h: 1 };
+        const MIN = 44;
+
+        const clampBox = (b) => {
+          b.w = Math.max(MIN, Math.min(b.w, disp.w));
+          b.h = Math.max(MIN, Math.min(b.h, disp.h));
+          b.x = Math.max(0, Math.min(b.x, disp.w - b.w));
+          b.y = Math.max(0, Math.min(b.y, disp.h - b.h));
+          return b;
+        };
+        const paint = (b) => {
+          box.style.left = b.x + 'px'; box.style.top = b.y + 'px';
+          box.style.width = b.w + 'px'; box.style.height = b.h + 'px';
+        };
+        let cur = { x: 0, y: 0, w: 0, h: 0 };
+
+        /* 用 JS 精确算出"图片显示尺寸"，并把 wrap 与 img 都设成同一像素值。
+           这样选框坐标与显示像素一一对应，不会因 CSS 的 max-height 把竖长照片压扁而出错。 */
+        const layout = (keepRatio) => {
+          nat.w = img.naturalWidth || 1; nat.h = img.naturalHeight || 1;
+          const availW = Math.max(120, scroller.clientWidth - 24);
+          const availH = Math.max(120, scroller.clientHeight - 12);
+          const k = Math.min(availW / nat.w, availH / nat.h);   // 铺满可用区域（等比，可放大）
+          disp.w = Math.max(80, Math.round(nat.w * k));
+          disp.h = Math.max(80, Math.round(nat.h * k));
+          wrap.style.width = disp.w + 'px'; wrap.style.height = disp.h + 'px';
+          img.style.width = disp.w + 'px'; img.style.height = disp.h + 'px';
+          if (keepRatio) {
+            const rw = cur.w / (disp.w || 1), rh = cur.h / (disp.h || 1);
+            const rx = cur.x / (disp.w || 1), ry = cur.y / (disp.h || 1);
+            cur = clampBox({ x: rx * disp.w, y: ry * disp.h, w: rw * disp.w, h: rh * disp.h });
+          } else {
+            cur = clampBox({ x: disp.w * 0.06, y: disp.h * 0.10, w: disp.w * 0.88, h: disp.h * 0.34 });
+          }
+          paint(cur);
+        };
+        const ready = () => { layout(false); };
+        if (img.complete && img.naturalWidth) ready();
+        else img.onload = ready;
+        const onResize = () => { if (img.naturalWidth) layout(true); };
+        window.addEventListener('resize', onResize);
+
+        /* 拖动 / 拉伸 */
+        let drag = null;
+        box.addEventListener('pointerdown', e => {
+          if (e.target.id === 'cropCancel') return;
+          e.preventDefault(); e.stopPropagation();
+          drag = {
+            mode: e.target.getAttribute('data-h') || 'move',
+            sx: e.clientX, sy: e.clientY, b: Object.assign({}, cur),
+          };
+        });
+        const onMove = e => {
+          if (!drag) return;
+          e.preventDefault();
+          const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+          const b = Object.assign({}, drag.b);
+          if (drag.mode === 'move') { b.x += dx; b.y += dy; }
+          else {
+            if (drag.mode.indexOf('l') >= 0) { b.x += dx; b.w -= dx; }
+            if (drag.mode.indexOf('r') >= 0) { b.w += dx; }
+            if (drag.mode.indexOf('t') >= 0) { b.y += dy; b.h -= dy; }
+            if (drag.mode.indexOf('b') >= 0) { b.h += dy; }
+            if (b.w < MIN) { if (drag.mode.indexOf('l') >= 0) b.x = drag.b.x + drag.b.w - MIN; b.w = MIN; }
+            if (b.h < MIN) { if (drag.mode.indexOf('t') >= 0) b.y = drag.b.y + drag.b.h - MIN; b.h = MIN; }
+          }
+          cur = clampBox(b); paint(cur);
+        };
+        const onUp = () => { drag = null; };
+        mask.addEventListener('pointermove', onMove, { passive: false });
+        mask.addEventListener('pointerup', onUp);
+        mask.addEventListener('pointercancel', onUp);
+
+        const finish = (v) => {
+          window.removeEventListener('resize', onResize);
+          mask.classList.remove('on');
+          setTimeout(() => mask.remove(), 180);
+          resolve(v);
+        };
+
+        mask.querySelector('#cropCancel').onclick = () => finish(null);
+        mask.querySelector('#cropAll').onclick = () => finish(dataUrl);
+        mask.querySelector('#cropOk').onclick = () => {
+          if (!nat.w || !disp.w) { finish(dataUrl); return; }
+          const k = nat.w / disp.w;
+          const sx = Math.round(cur.x * k), sy = Math.round(cur.y * k);
+          const sw = Math.max(8, Math.round(cur.w * k)), sh = Math.max(8, Math.round(cur.h * k));
+          const im = new Image();
+          im.onload = () => {
+            const cv = document.createElement('canvas');
+            cv.width = sw; cv.height = sh;
+            const c = cv.getContext('2d');
+            c.drawImage(im, sx, sy, sw, sh, 0, 0, sw, sh);
+            try { finish(cv.toDataURL('image/jpeg', 0.8)); } catch (e) { finish(dataUrl); }
+          };
+          im.onerror = () => finish(dataUrl);
+          im.src = dataUrl;
+        };
+      });
     }
   };
 
@@ -762,6 +930,6 @@
   };
 
   window.DB = DB; window.UI = UI; window.SFX = SFX; window.Say = Say; window.TTS = TTS;
-  window.FX = FX; window.Img = Img; window.Modal = Modal; window.Douyin = Douyin;
+  window.FX = FX; window.Img = Img; window.Modal = Modal; window.Douyin = Douyin; window.Crop = Crop;
   document.addEventListener('DOMContentLoaded', FX.init);
 })();
