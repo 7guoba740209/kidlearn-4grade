@@ -143,7 +143,7 @@
     },
     {
       id: 'chart', name: '条形统计图', book: '4a', emoji: '📊', color: '#FFC93D',
-      keywords: ['条形统计图', '统计图', '一格', '人数', '多少', '统计'],
+      keywords: ['条形统计图', '统计图', '一格', '人数', '统计'],
       gen() {
         const k = pick([2, 5, 10]), n1 = R(3, 12), n2 = R(1, n1 - 1);
         const t = R(0, 1);
