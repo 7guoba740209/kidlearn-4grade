@@ -7,11 +7,39 @@ window.MathMod = (function () {
    * Promise 换成自己的接口请求，返回 { text:'识别出的题目', kp:'知识点id' } 即可。
    * 注意：请用第二个参数 dataUrl（**已经裁剪好的那一题**），不要用原始整张照片。
    */
-  function recognizeImage(file, dataUrl) {
+  /* ---------------- 真 OCR（Tesseract.js，纯前端） ----------------
+   * 由 index.html 引入 CDN 的 tesseract.min.js，window.Tesseract 才存在。
+   * 首次会下载中文语言包（约 10MB，缓存在 IndexedDB），之后复用同一 worker。
+   * onProgress(m) 把识别进度显示到页面。 */
+  let _ocrWorker = null;
+  function _ocrTimeout(ms, tag) {
+    return new Promise((_, rej) => setTimeout(() => rej(new Error('ocr-' + tag + '-timeout')), ms));
+  }
+  async function ocrWithTesseract(dataUrl, onProgress) {
+    try {
+      if (!_ocrWorker) {
+        _ocrWorker = await Promise.race([
+          Tesseract.createWorker('chi_sim', 1, { logger: m => { if (onProgress) onProgress(m); } }),
+          _ocrTimeout(45000, 'init')
+        ]);
+      }
+      const { data } = await Promise.race([
+        _ocrWorker.recognize(dataUrl),
+        _ocrTimeout(45000, 'recognize')
+      ]);
+      return { text: (data.text || '').replace(/\s+/g, '') };
+    } catch (e) {
+      console.warn('[OCR] 识别失败，改走人工选知识点：', e && e.message);
+      return { text: '' };   // 失败 → 让调用方引导用户手动选，绝不再随机抽
+    }
+  }
+  function recognizeImage(file, dataUrl, onProgress) {
+    // 1) 用户自己接的 OCR 接口（若有）
     if (APP_CONFIG.MATH_OCR && window.MyOCR) return window.MyOCR(dataUrl || file, file);
-    return new Promise(resolve => {
-      setTimeout(() => resolve(window.MOCK_OCR[Math.floor(Math.random() * window.MOCK_OCR.length)]), 60);
-    });
+    // 2) 纯前端真 OCR
+    if (window.Tesseract) return ocrWithTesseract(dataUrl || file, onProgress);
+    // 3) 都没得用：返回空文本，由调用方引导用户手动选知识点（不再随机抽题）
+    return Promise.resolve({ text: '' });
   }
   /* 依据文字里的关键词二次确认知识点（真 OCR 返回的文本也走这一步） */
   function guessKp(text) {
@@ -22,6 +50,24 @@ window.MathMod = (function () {
       if (s > score) { score = s; best = kp; }
     });
     return best;
+  }
+
+  /* 没认出来 / 没匹配到知识点：让用户手动点选（返回 Promise<kpid|null>） */
+  function pickKp(box, ocrText) {
+    return new Promise(resolve => {
+      box.innerHTML = `
+        <div class="card">
+          <div style="font-weight:800;font-size:18px">🔍 没认出这道是什么题</div>
+          <div style="color:var(--ink2);font-size:15px;margin-top:6px;line-height:1.7">
+            ${ocrText ? '我读到的文字：<b>' + UI.esc(ocrText.slice(0, 80)) + '</b>' : '没有读到文字（照片可能不太清晰）'}
+          </div>
+          <div style="margin-top:12px;font-size:15px;color:var(--ink2)">请帮它选一下正确的知识点：</div>
+          <div class="lesson-list" style="margin-top:8px">
+            ${MATH_KP.map(k => `<span class="chip small" data-kp="${k.id}">${k.emoji} ${k.name}</span>`).join('')}
+          </div>
+        </div>`;
+      UI.$$('[data-kp]', box).forEach(ch => ch.onclick = () => resolve(ch.getAttribute('data-kp')));
+    });
   }
 
   function genQuestions(kpId) {
@@ -121,12 +167,33 @@ window.MathMod = (function () {
     }
 
     box.innerHTML = `<div class="card loading"><div class="spin"></div>
-      <div class="step-line">正在认题…找到知识点就出题！</div>
-      <img src="${dataUrl}" style="max-height:180px;margin-top:12px;border-radius:14px"></div>`;
+      <div class="step-line" id="ocrStep">正在识别文字…（首次需下载识别包，请稍候）</div></div>`;
 
     SFX.tap();
-    const r = await recognizeImage(f, dataUrl);
-    let kp = guessKp(r.text) || (r.kp && KP_MAP[r.kp]) || MATH_KP[0];
+    const step = () => document.getElementById('ocrStep');
+    const r = await recognizeImage(f, dataUrl, m => {
+      if (m && m.status) {
+        const pct = m.progress != null ? Math.round(m.progress * 100) : 0;
+        const LABELS = {
+          'loading language traineddata': '正在下载识别包',
+          'initializing tesseract': '正在准备识别引擎',
+          'recognizing text': '正在识别文字',
+          'recognized': '识别完成'
+        };
+        const el = step();
+        if (el) el.textContent = (LABELS[m.status] || m.status) + (pct ? `（${pct}%）` : '') + '…';
+      }
+    });
+
+    let kp = guessKp(r.text) || (r.kp && KP_MAP[r.kp]) || null;
+    if (!kp) {
+      const chosen = await pickKp(box, r.text);
+      if (!chosen) {
+        box.innerHTML = `<div class="card" style="text-align:center;color:var(--ink2)">已取消，回到数学首页重新拍一张吧</div>`;
+        return;
+      }
+      kp = KP_MAP[chosen];
+    }
 
     const s = newSession(kp.id, r.text, dataUrl);
     SFX.win();
