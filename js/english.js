@@ -129,14 +129,35 @@ window.English = (function () {
     if (s) { s.classList.add('spk-flash'); setTimeout(() => s.classList.remove('spk-flash'), 420); }
   }
 
+  /* 保证「题目框 + 所有字母块」在手机上一屏装得下（不用上下拉）：
+     渲染完量一次，超了就整体按比例收一点（--fit），反复几次直到不超。
+     单词越长、块越多，收得越多；最短也只收到 0.58，字号仍然看得清。 */
+  function fitGame() {
+    const card = document.querySelector('#gameBox .card');
+    if (!card) return;
+    const root = document.documentElement;
+    let f = 1;
+    card.style.setProperty('--fit', '1');
+    for (let i = 0; i < 12; i++) {
+      if (root.scrollHeight <= window.innerHeight) break;
+      f = Math.max(0.48, f - 0.055);
+      card.style.setProperty('--fit', String(f));
+      if (f <= 0.48) break;
+    }
+  }
+
   function step(autoSpeak) {
     const box = document.getElementById('gameBox');
     if (!box || !G) return;
     if (G.mode !== 'timed' && G.i >= G.words.length) return finish(false);
 
-    const w = G.mode === 'timed'
-      ? G.words[Math.floor(Math.random() * G.words.length)]
-      : G.words[G.i];
+    // __EN_FORCE_WORD 是给自动化测试用的（构造"最长单词"这种最坏情况），平时不设
+    const forced = window.__EN_FORCE_WORD;
+    const w = forced
+      ? { en: String(forced), zh: '（测试词）' }
+      : (G.mode === 'timed'
+        ? G.words[Math.floor(Math.random() * G.words.length)]
+        : G.words[G.i]);
 
     const letters = w.en.toLowerCase().split('');
     const extra = ['a', 'e', 'i', 'o', 'u', 'r', 's', 't', 'n', 'l', 'm', 'c', 'd', 'p', 'h', 'g'];
@@ -201,6 +222,8 @@ window.English = (function () {
 
     if (autoSpeak && G.mode !== 'scramble') setTimeout(() => speakNow(w.en), 300);
     if (G.mode === 'timed' && !G.timer) startTimer();
+    fitGame();                       // 框 + 字母必须一屏装得下
+    setTimeout(fitGame, 60);         // 字体加载/换行后再校一次
   }
 
   function tapLetter(opt) {
@@ -325,6 +348,9 @@ window.English = (function () {
         const [mode, bid, mid] = [p[2], p[3], p[4]];
         // 离开游戏时清掉计时器
         window.addEventListener('hashchange', () => { if (G && G.timer) { clearInterval(G.timer); G.timer = null; } });
+        // 转屏/改窗口尺寸后重新校正"一屏装得下"
+        window.addEventListener('resize', fitGame);
+        window.addEventListener('orientationchange', () => setTimeout(fitGame, 200));
         startGame(mode, bid, mid);
       }
     }
