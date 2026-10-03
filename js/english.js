@@ -22,7 +22,7 @@ window.English = (function () {
   function books() {
     return `<div class="page-head"><span class="back" data-go="#/home">‹</span><h2>英语</h2></div>
       <p class="big-title">选一册开始闯关</p>
-      <p class="sub-title">人教版（三年级起点）· 边玩边背单词</p>
+      <p class="sub-title">外研版（2025）· 边玩边背单词</p>
       ${EN_BOOKS.map(b => `
         <button class="big-btn ${b.id === '4a' ? 'bg-g' : 'bg-p'}" data-go="#/en/${b.id}">
           <span class="ico">${b.id === '4a' ? '🔠' : '🎧'}</span>
