@@ -1,9 +1,9 @@
 /* ============================================================
  *  英语教材数据 —— 外语教学与研究出版社（外研版）
- *  义务教育教科书 英语 四年级 上册（2025 年 6 月第 1 版）
+ *  义务教育教科书 英语 四年级 上、下册（2025 年 6 月第 1 版）
  *
- *  结构：units[{ id:'U1', name:'Unit 1', topic:'…', words:[{en, zh}] }]
- *  来源：国家中小学智慧教育平台 PDF「Words and expressions」p.82-85，
+ *  结构：EN_BOOKS[ { id:'4a'/'4b', name, sub, units:[ { id:'U1', name, topic, words:[{en,zh}] } ] } ]
+ *  来源：国家中小学智慧教育平台 PDF「Words and expressions」
  *        人工照录。课本为图片版，词条按 Unit 分组。
  *  维护：直接改 EN_BOOKS 即可，单元名、单词都可自由增删，
  *        拼写游戏会自动读取最新数据。
@@ -187,6 +187,154 @@ window.EN_BOOKS = [
           { en: 'careful', zh: '谨慎的' },
           { en: 'be careful', zh: '当心，小心' },
           { en: 'underground', zh: '在地（面）下' }
+        ]
+      }
+    ]
+  },
+
+  /* ==================== 四年级 下册 ==================== */
+  {
+    id: '4b', name: '四年级 下册', sub: '外研版（2025）',
+    units: [
+      {
+        id: 'U1', name: 'Unit 1', topic: 'People at work 工作中的人',
+        words: [
+          { en: 'doctor', zh: '医生，大夫' },
+          { en: 'fireman', zh: '消防队员' },
+          { en: 'farmer', zh: '农民；农场主；养殖场主' },
+          { en: 'cook', zh: '厨师，炊事员' },
+          { en: 'police', zh: '警察' },
+          { en: 'police officer', zh: '警察，警官' },
+          { en: 'station', zh: '所；站；台；局' },
+          { en: 'police station', zh: '警察（分）局，派出所' },
+          { en: 'often', zh: '经常，时常，多次' },
+          { en: 'field', zh: '田地，田野' },
+          { en: 'painter', zh: '画家' },
+          { en: 'use', zh: '用，使用' },
+          { en: 'brush', zh: '刷子；毛刷' },
+          { en: 'scientist', zh: '科学家' },
+          { en: 'writer', zh: '作家；作者' },
+          { en: 'worker', zh: '工人' },
+          { en: 'aunt', zh: '姑母；姨母' },
+          { en: 'night', zh: '夜晚，夜间' },
+          { en: 'owl', zh: '猫头鹰' },
+          { en: 'night owl', zh: '夜猫子，喜欢熬夜的人' },
+          { en: 'driver', zh: '司机，驾驶员' },
+          { en: 'taxi', zh: '出租车，计程车' },
+          { en: 'safe', zh: '安全的，没有危险的' },
+          { en: 'nurse', zh: '护士' },
+          { en: 'light', zh: '照亮' },
+          { en: 'uncle', zh: '叔叔，伯伯' },
+          { en: 'bake', zh: '烘，烤，焙' },
+          { en: 'bee', zh: '蜜蜂' },
+          { en: 'same', zh: '相同的，完全相同的，一模一样的' },
+          { en: 'sound', zh: '声，声音' },
+          { en: 'postman', zh: '邮递员' },
+          { en: 'life', zh: '生活' },
+          { en: 'mountain', zh: '高山' }
+        ]
+      },
+      {
+        id: 'U2', name: 'Unit 2', topic: 'How do you feel today? 你今天感觉怎么样？',
+        words: [
+          { en: 'laugh', zh: '发出笑声，（大）笑' },
+          { en: 'sad', zh: '不愉快的，伤心的，难过的' },
+          { en: 'scared', zh: '害怕的，恐惧的；紧张的' },
+          { en: 'angry', zh: '发怒的，生气的，气愤的' },
+          { en: 'excited', zh: '兴奋的，激动的' },
+          { en: 'opera', zh: '歌剧' },
+          { en: 'next', zh: '（时间）紧接着的；下次的' },
+          { en: 'cough', zh: '咳嗽，咳' },
+          { en: 'better', zh: '（健康状况）好转的；（疼痛、伤势等）减轻的' },
+          { en: 'gift', zh: '礼物' },
+          { en: 'model', zh: '（尤指可拼装的）模型' },
+          { en: 'shout', zh: '大声说，喊叫，呼喊' },
+          { en: 'should', zh: '应当，应该' },
+          { en: 'feeling', zh: '感觉，感触' },
+          { en: 'huge', zh: '巨大的' },
+          { en: 'worried', zh: '担心的，焦虑的' },
+          { en: 'street', zh: '大街，街道' },
+          { en: 'hit', zh: '撞击，碰撞' }
+        ]
+      },
+      {
+        id: 'U3', name: 'Unit 3', topic: "Everyone's got talent! 人人都有天赋！",
+        words: [
+          { en: 'talent', zh: '天资，天赋，才能' },
+          { en: 'act', zh: '演出；扮演' },
+          { en: 'magic', zh: '魔术，戏法' },
+          { en: 'shine', zh: '表现突出，出众' },
+          { en: 'puzzle', zh: '拼图游戏' },
+          { en: 'dancer', zh: '舞蹈演员' },
+          { en: 'win', zh: '获胜，赢' },
+          { en: 'just', zh: '就，只是' },
+          { en: 'boy', zh: '男孩；儿子' },
+          { en: 'slowly', zh: '缓慢地，慢慢地' }
+        ]
+      },
+      {
+        id: 'U4', name: 'Unit 4', topic: 'Plant life 植物的生命',
+        words: [
+          { en: 'seed', zh: '种子，籽' },
+          { en: 'earth', zh: '泥土，土壤' },
+          { en: 'root', zh: '根' },
+          { en: 'stem', zh: '（植物的）茎，梗，柄' },
+          { en: 'thin', zh: '细的' },
+          { en: 'leaf', zh: '叶，叶子' },
+          { en: 'dig', zh: '挖，掘' },
+          { en: 'sunflower', zh: '向日葵' },
+          { en: 'plant', zh: '种植，栽种；播（种）' },
+          { en: 'dream', zh: '梦想，愿望，理想' },
+          { en: 'sleep', zh: '睡，睡觉' },
+          { en: 'will', zh: '将，会，要' },
+          { en: 'true', zh: '真的，真实的' },
+          { en: 'come true', zh: '实现' },
+          { en: 'paper', zh: '纸' }
+        ]
+      },
+      {
+        id: 'U5', name: 'Unit 5', topic: 'School activities 学校活动',
+        words: [
+          { en: 'drama', zh: '戏剧' },
+          { en: 'trip', zh: '旅游；旅行，出行' },
+          { en: 'fair', zh: '集市；义卖会；户外游艺会' },
+          { en: 'festival', zh: '节，节庆，汇演' },
+          { en: 'horn', zh: '角' },
+          { en: 'dot', zh: '点，小圆点' },
+          { en: 'raindrop', zh: '雨点，雨滴' },
+          { en: 'more', zh: '更多的' },
+          { en: 'special', zh: '特殊的，特别的' },
+          { en: 'keeper', zh: '看守人，保管人' },
+          { en: 'hey', zh: '嘿，喂' },
+          { en: 'lovely', zh: '美好的；令人愉快的；可爱的' },
+          { en: 'student', zh: '学生' },
+          { en: 'culture', zh: '文化' },
+          { en: 'hour', zh: '小时' },
+          { en: 'note', zh: '笔记，记录' },
+          { en: 'vote', zh: '选票' },
+          { en: 'design', zh: '设计' },
+          { en: 'hometown', zh: '家乡，故乡' }
+        ]
+      },
+      {
+        id: 'U6', name: 'Unit 6', topic: 'Cool clothes 炫酷的服装',
+        words: [
+          { en: 'T-shirt', zh: 'T恤（衫）' },
+          { en: 'skirt', zh: '半身裙，裙子' },
+          { en: 'shorts', zh: '短裤' },
+          { en: 'shirt', zh: '衬衫' },
+          { en: 'trousers', zh: '裤子' },
+          { en: 'scarf', zh: '围巾' },
+          { en: 'sweater', zh: '毛线衣，羊毛衫，针织衫' },
+          { en: 'dress', zh: '连衣裙' },
+          { en: 'party', zh: '聚会，宴会' },
+          { en: 'dressmaker', zh: '裁缝' },
+          { en: 'wrong', zh: '不正确的，错误的' },
+          { en: 'clever', zh: '聪明的' },
+          { en: 'whale', zh: '鲸' },
+          { en: 'Mr', zh: '先生' },
+          { en: 'uniform', zh: '制服' },
+          { en: 'robe', zh: '长袍' }
         ]
       }
     ]
