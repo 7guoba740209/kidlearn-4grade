@@ -333,3 +333,97 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
   flex:none;display:grid;grid-template-columns:1fr 1.4fr;gap:10px;
   padding:10px 14px calc(14px + env(safe-area-inset-bottom,0px));
 }
+
+/* ================= 优秀作文（列表 + 正文） ================= */
+.essay-card{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:14px 16px;margin:12px 0;border-left:8px solid var(--purple)}
+.essay-card:active{transform:scale(.99)}
+.ec-no{width:38px;height:38px;flex:none;border-radius:50%;background:#F3EAFF;color:var(--purple-d);
+  font-weight:900;display:flex;align-items:center;justify-content:center;font-size:19px}
+.ec-main{flex:1;min-width:0}
+.ec-title{font-size:20px;font-weight:800;line-height:1.35}
+.ec-sub{color:var(--ink2);font-size:14px;margin-top:2px}
+.ec-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.etag{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;
+  background:#FFF1E2;color:#A95A17;border:1px solid #FFDCBC}
+.ec-go{color:var(--purple-d);font-weight:800;font-size:15px;flex:none}
+
+.essay-head{text-align:center;margin:6px 0 14px}
+.essay-head h3{margin:0;font-size:26px;font-weight:900}
+.essay-by{color:var(--ink2);font-size:15px;margin-top:4px}
+.essay-meta{color:var(--ink2);font-size:14px;margin-top:2px}
+.essay-box{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 16px}
+.essay-p{margin:0 0 14px;text-indent:2em;cursor:pointer;border-radius:10px;
+  padding:2px 8px;margin-left:-8px;margin-right:-8px;
+  transition:background .18s,color .18s,box-shadow .18s}
+.essay-p:last-child{margin-bottom:0}
+.essay-p.now{background:linear-gradient(90deg,#FFE9C9,#FFD9A8);color:#7A3E00;font-weight:800;
+  box-shadow:0 0 0 2px #FFB870 inset}
+.essay-nav .btn{display:flex;flex-direction:column;gap:2px;padding:12px 8px}
+.essay-nav .btn small{font-size:12px;font-weight:700;opacity:.85;line-height:1.3;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+
+/* ================= 词语表 + 听写 ================= */
+.word-card{border-left:8px solid var(--cyan)}
+.wc-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.wc-title{font-size:19px;font-weight:800}
+.wc-count{color:var(--ink2);font-size:14px;font-weight:700}
+.wc-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.wc-word{padding:8px 14px;border-radius:12px;background:#F6FBFF;border:2px solid #D8EDF7;
+  font-size:19px;font-weight:700;cursor:pointer;
+  transition:transform .15s,background .15s,border-color .15s}
+.wc-word:active{transform:scale(.95)}
+.wc-word.on{background:linear-gradient(135deg,#FFE9C9,#FFD59E);border-color:#FFB870;color:#7A3E00}
+.wc-word.mask{color:transparent;background:#F1F1F1;border-color:#E4E4E4}
+.wc-word.mask::after{content:'□';color:#C2C2C2}
+.wc-word.mask.on{background:#F1F1F1;border-color:#BFBFBF}
+.wc-hint{color:var(--ink2);font-size:15px;line-height:1.6;background:#F6FBFF;border-radius:12px;padding:9px 12px}
+.wc-gap{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 2px;
+  font-size:15px;color:var(--ink2);font-weight:700}
+.wc-gap-btn{padding:6px 14px;border-radius:999px;border:2px solid var(--line);background:#fff;
+  font-weight:800;font-size:15px;color:var(--ink)}
+.wc-gap-btn.on{background:#E8F1FF;border-color:#C4DBFF;color:var(--blue-d)}
+.wc-gap-tip{font-weight:600;font-size:13px;opacity:.8}
+.wc-ctrl{margin-top:10px}
+.wc-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.wc-row:first-child{margin-top:0}
+.wc-row .btn{flex:1 1 calc(50% - 4px);min-height:50px;font-size:16px;padding:8px 4px}
+@media(min-width:421px){.wc-row .btn{flex:1 1 calc(33% - 4px)}}
+
+/* ================= 游戏页：自动收缩，保证「框 + 字母」一屏装得下 ================= */
+#gameBox .card{--fit:1;padding:14px 14px 12px}
+.game-top{margin-bottom:8px}
+.pill{padding:5px 14px;font-size:16px}
+.word-zh{font-size:24px;margin:2px 0 0}
+.word-hint-row .zh{font-size:22px}
+.mini-spk{padding:5px 10px;font-size:14px}
+.word-hint{font-size:15px}
+.slots{gap:calc(7px*var(--fit,1));margin:calc(12px*var(--fit,1)) 0 4px}
+.slot{width:calc(46px*var(--fit,1));height:calc(54px*var(--fit,1));
+  border-radius:calc(12px*var(--fit,1));border-width:calc(3px*var(--fit,1));
+  font-size:calc(26px*var(--fit,1))}
+.tiles{gap:calc(9px*var(--fit,1));margin-top:calc(12px*var(--fit,1))}
+.tile{width:calc(52px*var(--fit,1));height:calc(56px*var(--fit,1));
+  border-radius:calc(14px*var(--fit,1));font-size:calc(26px*var(--fit,1))}
+.game-ctrl{margin-top:calc(10px*var(--fit,1))}
+.game-ctrl .btn{min-height:calc(52px*var(--fit,1));font-size:calc(17px*var(--fit,1))}
+.combo{height:calc(26px*var(--fit,1));font-size:calc(20px*var(--fit,1))}
+#gameBox #sSkip{min-height:calc(54px*var(--fit,1)) !important;
+  margin-top:calc(10px*var(--fit,1)) !important;font-size:calc(17px*var(--fit,1))}
+
+/* 游戏页：底部给标签栏留的空隙收紧（配合 JS 的自动收缩） */
+#view.page-game{padding-bottom:74px}
+/* 矮屏手机（老机型 640/667 高）：非缩放部分再压一压 */
+@media(max-height:720px){
+  #view{padding-top:10px}
+  .page-head{margin:0 0 8px}
+  .page-head h2{font-size:22px}
+  .game-top{margin-bottom:5px}
+  .pill{padding:3px 11px;font-size:14px}
+  .word-zh{font-size:20px}
+  .word-hint-row .zh{font-size:19px}
+  .word-hint{font-size:14px}
+  .mini-spk{padding:4px 9px;font-size:13px}
+  .combo{height:0;margin:0;overflow:hidden}
+  #gameBox .card{padding:11px 11px 10px}
+}
