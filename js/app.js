@@ -120,6 +120,8 @@
     else html = home();
 
     V().innerHTML = html;
+    // 游戏页要"一屏装得下"，底部给标签栏留的空隙收紧一点（见 css 的 .page-game）
+    V().classList.toggle('page-game', parts[0] === 'en' && parts[1] === 'g');
     // 用赋值方式绑定，避免多次路由后监听器叠加
     V().onclick = UI.delegate('[data-go]', function () {
       SFX.tap();
