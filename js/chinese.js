@@ -55,6 +55,10 @@ window.Chinese = (function () {
   const essaysOf = (bookId, unitId) =>
     (window.CN_ESSAYS && CN_ESSAYS[bookId + '-' + unitId]) || [];
 
+  /* 本课词语表（课本附录「词语表」，只有精读课文有） */
+  const wordsOf = (bookId, no) =>
+    (window.CN_WORDS && CN_WORDS[bookId + '-' + no]) || [];
+
   function renderUnits(p) {
     const book = findBook(p[1]);
     const units = book.units.map(u => {
@@ -126,18 +130,41 @@ window.Chinese = (function () {
   }
 
   /* ---------- 作文正文页 ---------- */
+  /* 上一篇 / 下一篇：跨篇、跨单元连续翻，保证「下一篇」永远点得动 */
+  function essayStep(book, unit, idx, dir) {
+    let ui = book.units.indexOf(unit), i = idx + dir;
+    while (ui >= 0 && ui < book.units.length) {
+      const es = essaysOf(book.id, book.units[ui].id);
+      if (i < 0) { ui--; if (ui < 0) break; i = essaysOf(book.id, book.units[ui].id).length - 1; continue; }
+      if (i >= es.length) { ui++; i = 0; continue; }
+      const e = es[i];
+      if (!e) break;
+      return { u: book.units[ui], i, e };
+    }
+    return null;
+  }
+
   function renderEssayRead(p) {
     const book = findBook(p[1]);
     const unit = findUnit(book, p[2]) || book.units[0];
     const es = essaysOf(book.id, unit.id);
-    const idx = Number(p[3]) || 0;
+    // 注意：路由是 #/cn/<册>/<单元>/essay/<序号>，序号在 p[4]（p[3] 是 'essay'）。
+    // 以前这里写成 p[3] → Number('essay') = NaN → 永远回退到 0，
+    // 表现就是"点下一篇地址变了、内容还是第 1 篇"。
+    const idx = Number(p[4]) || 0;
     const e = es[idx];
     if (!e) return renderEssays([p[0], book.id, unit.id]);
 
     const paras = String(e.text || '').split('\n').filter(s => s.trim().length);
-    const body = paras.map(s => `<p class="essay-p">${UI.esc(s.trim())}</p>`).join('');
-    const prev = idx > 0 ? `<a class="btn ghost" href="#/cn/${book.id}/${unit.id}/essay/${idx - 1}">‹ 上一篇</a>` : '<span></span>';
-    const next = idx < es.length - 1 ? `<a class="btn bg-b" href="#/cn/${book.id}/${unit.id}/essay/${idx + 1}">下一篇 ›</a>` : '<span></span>';
+    const body = paras.map((s, i) => `<p class="essay-p" data-l="${i}">${UI.esc(s.trim())}</p>`).join('');
+    const pv = essayStep(book, unit, idx, -1);
+    const nx = essayStep(book, unit, idx, 1);
+    const prev = pv
+      ? `<a class="btn ghost" href="#/cn/${book.id}/${pv.u.id}/essay/${pv.i}"><span>‹ 上一篇</span><small>${UI.esc(pv.e.title)}</small></a>`
+      : '<span></span>';
+    const next = nx
+      ? `<a class="btn bg-b" href="#/cn/${book.id}/${nx.u.id}/essay/${nx.i}"><span>下一篇 ›</span><small>${UI.esc(nx.e.title)}</small></a>`
+      : '<span></span>';
 
     return `
       <div class="page-head">
@@ -155,7 +182,13 @@ window.Chinese = (function () {
           ${e.tags.map(t => `<span class="etag">${UI.esc(t)}</span>`).join('')}</div>` : ''}
       </div>
 
-      <div class="essay-box">${body}</div>
+      <div class="toolbar">
+        <button class="btn bg-pk" id="btnRead"><span>🔊</span>听朗读</button>
+        <a class="btn ghost" href="#/cn/${book.id}/${unit.id}/essay">📚 作文列表</a>
+      </div>
+      <div class="read-hint" id="readHint">🔊 点「听朗读」，声音会一句一句读出来，读到哪句，哪句就变色</div>
+
+      <div class="essay-box" id="essayBox">${body}</div>
 
       <div class="card" style="margin-top:14px">
         <div style="font-weight:800;margin-bottom:6px">✍️ 读完了，试试这几件事</div>
@@ -166,7 +199,16 @@ window.Chinese = (function () {
         </div>
       </div>
 
-      <div class="grid2" style="margin-top:14px">${prev}${next}</div>
+      <button class="follow-btn" id="sbFollow" hidden>⬇ 回到正在读的地方</button>
+
+      <div class="songbar" id="songBar" hidden>
+        <button class="sb-btn" id="sbPrev" aria-label="上一句">‹</button>
+        <button class="sb-play" id="sbPlay">⏸ 暂停</button>
+        <button class="sb-btn" id="sbNext" aria-label="下一句">›</button>
+        <button class="sb-x" id="sbClose" aria-label="停止">✕</button>
+      </div>
+
+      <div class="grid2 essay-nav" style="margin-top:14px">${prev}${next}</div>
       <a class="big-btn bg-o" style="margin-top:10px" href="#/cn/${book.id}/${unit.id}/essay"><span class="ico">📚</span><span>回到这个单元的作文列表</span></a>`;
   }
 
@@ -203,6 +245,27 @@ window.Chinese = (function () {
         <div class="by">${UI.esc(lesson.by || '')}</div>
         ${body}
       </div>
+
+      ${wordsOf(book.id, lesson.no).length ? `
+      <div class="card word-card" id="wordCard">
+        <div class="wc-head">
+          <span class="wc-title">📝 本课词语表</span>
+          <span class="wc-count">${wordsOf(book.id, lesson.no).length} 个词</span>
+        </div>
+        <div class="wc-list" id="wcList">
+          ${wordsOf(book.id, lesson.no).map((w, i) =>
+            `<span class="wc-word" data-i="${i}">${UI.esc(w)}</span>`).join('')}
+        </div>
+        <div class="wc-hint" id="wcHint">点「开始听写」：一个一个词念给你听，词与词之间留出写字的时间，随时可以暂停。</div>
+        <div class="wc-gap">
+          <span>词后停</span>
+          <button class="wc-gap-btn" data-gap="3000">3 秒</button>
+          <button class="wc-gap-btn on" data-gap="5000">5 秒</button>
+          <button class="wc-gap-btn" data-gap="8000">8 秒</button>
+          <span class="wc-gap-tip">（低年级建议 5~8 秒）</span>
+        </div>
+        <div class="wc-ctrl" id="wcCtrl"></div>
+      </div>` : ''}
 
       <div class="card" style="margin-top:14px">
         <div style="font-weight:800;margin-bottom:6px">📌 这一课</div>
@@ -249,6 +312,157 @@ window.Chinese = (function () {
   function isMarked(b, l) { return !!DB.get(markKey(b, l), false); }
 
   /* ============================================================
+   *  词语表听写：一个一个词念出来，词与词之间留白（写字时间），随时可暂停
+   * ============================================================ */
+  let DICT = null;   // { words, i, playing, gap, gen, timer, hide, chips, hint, ctrl }
+
+  function dictQuit() {          // 离开页面时调用：彻底停掉
+    if (!DICT) return;
+    DICT.gen++;
+    clearTimeout(DICT.timer);
+    TTS.stop();
+    DICT = null;
+  }
+
+  function mountWordCard(book, no) {
+    const card = document.getElementById('wordCard');
+    if (!card) return;
+    const words = wordsOf(book.id, no);
+    if (!words.length) return;
+
+    const list = document.getElementById('wcList');
+    const hint = document.getElementById('wcHint');
+    const ctrl = document.getElementById('wcCtrl');
+    const chips = UI.$$('.wc-word', list);
+    DICT = {
+      words, i: -1, playing: false, gap: 5000, gen: 0, timer: null, hide: false,
+      chips, hint, ctrl
+    };
+
+    const paintDict = () => {
+      if (!DICT) return;
+      DICT.chips.forEach((c, i) => {
+        c.classList.toggle('on', i === DICT.i);
+        c.classList.toggle('mask', !!DICT.hide && i !== DICT.i);
+      });
+    };
+
+    /* 报一个词；once=true 表示只念一遍不往下走（点某个词时用） */
+    const say = (k, once) => {
+      if (!DICT) return;
+      clearTimeout(DICT.timer);
+      DICT.timer = null;
+      if (k < 0 || k >= DICT.words.length) {
+        DICT.i = -1; DICT.playing = false;
+        paintDict(); paintCtrl();
+        DICT.hint.textContent = '报完啦！检查一下有没有写错的字 ✍️ 想再报一遍就点「开始听写」';
+        return;
+      }
+      const myGen = ++DICT.gen;
+      DICT.i = k;
+      DICT.playing = true;
+      DICT.hint.textContent = `正在报第 ${k + 1} / ${DICT.words.length} 个词 · 词后停 ${DICT.gap / 1000} 秒`;
+      paintDict(); paintCtrl();
+
+      const begin = () => {
+        if (!DICT || DICT.gen !== myGen) return;
+        TTS.play(null, {
+          units: [DICT.words[k]],
+          onEnd: () => {
+            if (!DICT || DICT.gen !== myGen) return;
+            if (once) {
+              DICT.playing = false;
+              paintCtrl();
+              DICT.hint.textContent = `这是第 ${k + 1} / ${DICT.words.length} 个词 · 点「开始听写」可以往下报`;
+              return;
+            }
+            DICT.timer = setTimeout(() => {
+              if (!DICT || DICT.gen !== myGen) return;
+              say(k + 1, false);
+            }, DICT.gap);
+          }
+        });
+      };
+      // 和朗读一样：只有"引擎还没定下来"才需要等，本机语音/在线朗读都不让用户点第二次
+      if (Say.engine() !== 'unknown') begin();
+      else {
+        DICT.hint.textContent = '正在准备语音，马上就好…';
+        Say.whenReady(() => begin(), 900);
+      }
+    };
+
+    const paintCtrl = () => {
+      if (!DICT) return;
+      const running = DICT.playing || DICT.i >= 0;
+      ctrl.innerHTML = running ? `
+        <div class="wc-row">
+          <button class="btn ghost" id="wcPrev">‹ 上一个</button>
+          <button class="btn bg-y" id="wcPause">${DICT.playing ? '⏸ 暂停' : '▶ 继续'}</button>
+          <button class="btn ghost" id="wcNext">下一个 ›</button>
+        </div>
+        <div class="wc-row">
+          <button class="btn ghost" id="wcReplay">🔊 再念一遍</button>
+          <button class="btn ghost" id="wcEye">${DICT.hide ? '🙈 显示词语' : '👀 遮住词语'}</button>
+          <button class="btn ghost" id="wcStop">✕ 结束</button>
+        </div>` : `
+        <div class="wc-row">
+          <button class="btn bg-g" id="wcStart">🧏 开始听写</button>
+          <button class="btn ghost" id="wcEye">${DICT.hide ? '🙈 显示词语' : '👀 遮住词语'}</button>
+        </div>`;
+
+      const g = id => document.getElementById(id);
+      const bind = (id, fn) => { const el = g(id); if (el) el.onclick = fn; };
+      bind('wcStart', () => { SFX.tap(); say(0, false); });
+      bind('wcPause', () => {
+        SFX.tap();
+        if (DICT.playing) {                       // 暂停
+          DICT.gen++; clearTimeout(DICT.timer); DICT.timer = null;
+          TTS.stop();
+          DICT.playing = false;
+          DICT.hint.textContent = `已暂停在第 ${DICT.i + 1} / ${DICT.words.length} 个词，点「继续」接着报`;
+          paintCtrl();
+        } else {                                  // 接着报
+          say(DICT.i < 0 ? 0 : DICT.i, false);
+        }
+      });
+      bind('wcPrev', () => { SFX.tap(); say(Math.max(0, DICT.i - 1), false); });
+      bind('wcNext', () => { SFX.tap(); say(Math.min(DICT.words.length - 1, DICT.i + 1), false); });
+      bind('wcReplay', () => { SFX.tap(); say(DICT.i < 0 ? 0 : DICT.i, false); });
+      bind('wcStop', () => {
+        SFX.tap();
+        DICT.gen++; clearTimeout(DICT.timer); DICT.timer = null;
+        TTS.stop();
+        DICT.playing = false; DICT.i = -1;
+        DICT.hint.textContent = '已结束听写。点「开始听写」可以重头再报一遍。';
+        paintDict(); paintCtrl();
+      });
+      bind('wcEye', () => {
+        SFX.tap();
+        DICT.hide = !DICT.hide;
+        paintDict(); paintCtrl();
+      });
+    };
+
+    // 点某个词 → 单独听一遍（不会打断整个听写进度）
+    chips.forEach((c, i) => {
+      c.onclick = () => { SFX.tap(); say(i, true); };
+    });
+    // 词后间隔
+    UI.$$('.wc-gap-btn', card).forEach(b => {
+      b.onclick = () => {
+        SFX.tap();
+        if (!DICT) return;
+        DICT.gap = Number(b.getAttribute('data-gap')) || 5000;
+        UI.$$('.wc-gap-btn', card).forEach(x => x.classList.toggle('on', x === b));
+        if (DICT.playing) DICT.hint.textContent = `正在报第 ${DICT.i + 1} / ${DICT.words.length} 个词 · 词后停 ${DICT.gap / 1000} 秒`;
+      };
+    });
+
+    paintCtrl();
+    paintDict();
+  }
+
+  /* ============================================================
    *  朗读页：看图朗读 —— 一页 = 一图 + 一句，声音与画面逐页同步
    * ============================================================ */
 
@@ -282,6 +496,7 @@ window.Chinese = (function () {
 
   /* 彻底清掉（切换路由/换课时调） */
   function liveClose() {
+    dictQuit();                 // 听写也要一起停
     if (!LIVE) return;
     TTS.stop();
     if (LIVE.bar) LIVE.bar.hidden = true;
@@ -298,9 +513,10 @@ window.Chinese = (function () {
   }
   function livePlaying() { return !!(LIVE && LIVE.playing); }
 
-  /* 绑定课文页的原地朗读 */
-  function mountLiveReader(book, unit, lesson) {
-    const box = document.getElementById('textBox');
+  /* 绑定「原地朗读」—— 课文页与作文页共用（两页用同一套控件 id：
+     textBox/essayBox + btnRead + readHint + songBar(sbPlay/sbPrev/sbNext/sbClose) + sbFollow） */
+  function bindReader(boxId, emptyMsg) {
+    const box = document.getElementById(boxId);
     const br = document.getElementById('btnRead');
     if (!box || !br) return;
 
@@ -317,7 +533,7 @@ window.Chinese = (function () {
     });
 
     if (!lines.length) {
-      br.onclick = () => UI.toast('这一课还没有课文内容哦');
+      br.onclick = () => UI.toast(emptyMsg || '这里还没有内容哦');
       return;
     }
 
@@ -563,12 +779,15 @@ window.Chinese = (function () {
         bm.textContent = DB.get(k) ? '⭐ 已收藏' : '☆ 收藏';
         UI.toast(DB.get(k) ? '收藏好啦！' : '取消收藏');
       };
-      // 课文页：绑定原地朗读
-      if (p[1] && p[2] && p[3] && p[3] !== 'essay') {
+      // 课文页 / 作文页：绑定原地朗读（同一套控件）
+      const isEssayRead = p[3] === 'essay' && p[4] !== undefined && p[4] !== '';
+      if (isEssayRead) {
+        bindReader('essayBox', '这篇作文还没有内容哦');
+      } else if (p[1] && p[2] && p[3] && p[3] !== 'essay') {
         const book = findBook(p[1]);
         const unit = findUnit(book, p[2]) || book.units[0];
-        const lesson = findLesson(unit, p[3]) || unit.lessons[0];
-        mountLiveReader(book, unit, lesson);
+        bindReader('textBox', '这一课还没有课文内容哦');
+        mountWordCard(book, p[3]);
       }
     }
   };
