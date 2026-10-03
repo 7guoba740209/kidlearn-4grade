@@ -43,8 +43,13 @@ window.APP_CONFIG = {
     SHOW_DOUYIN_BTN: true  // 播放器底部是否显示「在抖音里看」按钮
   },
 
-  /* ---------- 数学 ---------- */
-  MATH_OCR: false,        // true = 使用真实 OCR 接口；false = 本地模拟
+  /* ---------- 数学 ----------
+   * 拍照识别默认用内置的纯前端 OCR（Tesseract.js，见 index.html 引入的 CDN，
+   * 无需后端/密钥，首次会下载中文包约 10MB 并缓存在本机）。
+   * 若你想接自己的商业 OCR（百度/腾讯云等），把识别逻辑写在 js/math.js 的
+   * window.MyOCR 里，并把下面这个值设为 true 即可走你的接口。
+   * 既没有 Tesseract 又没接 MyOCR 时，会改为让用户手动选知识点（不再随机抽）。 */
+  MATH_OCR: false,        // true = 使用 window.MyOCR 自定义接口；false = 用内置 Tesseract（若已加载）
   MATH_MAX_PHOTO: 800,    // 存云盘的照片最长边像素（越小越省空间）
   MATH_PRACTICE_N: 5,     // 每次自动生成几道针对性练习题
   MATH_CROP: true,        // true = 拍完先框住"这一道题"再识别；false = 直接识别整张
