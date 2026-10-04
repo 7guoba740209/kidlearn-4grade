@@ -15,6 +15,52 @@ window.MathMod = (function () {
   function _ocrTimeout(ms, tag) {
     return new Promise((_, rej) => setTimeout(() => rej(new Error('ocr-' + tag + '-timeout')), ms));
   }
+
+  /* 拍照原图往往有噪点 / 光线不均 / 字偏小，直接喂给 Tesseract 准确率会掉。
+   * 预处理：放大(小字) → 灰度 → 轻度锐化(补偿对焦不实&缩放模糊)。
+   * 不开"硬二值化"——实测对带噪+模糊的图反而把字搞糊，Tesseract 自带自适应阈值更稳。
+   * 任何一步出错就退回原图。 */
+  function preprocessForOCR(dataUrl) {
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
+          if (!W || !H) return resolve(dataUrl);
+          let scale = 1;
+          const target = 1800;
+          if (W < target) scale = Math.min(target / W, 3);   // 字太小就放大，最多 3 倍
+          const w = Math.max(1, Math.round(W * scale)), h = Math.max(1, Math.round(H * scale));
+          const cv = document.createElement('canvas');
+          cv.width = w; cv.height = h;
+          const ctx = cv.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          const d = ctx.getImageData(0, 0, w, h);
+          const px = d.data;
+          const g = new Uint8ClampedArray(w * h);
+          for (let i = 0, j = 0; i < px.length; i += 4, j++) {
+            const v = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+            g[j] = v; px[i] = px[i + 1] = px[i + 2] = v;
+          }
+          // 轻度锐化（拉普拉斯）：中心 5 倍，四邻各减 1
+          const out = new Uint8ClampedArray(g.length);
+          const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h) ? g[y * w + x] : g[y * w + x];
+          for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const i = y * w + x;
+            const v = 5 * at(x, y) - at(x - 1, y) - at(x + 1, y) - at(x, y - 1) - at(x, y + 1);
+            out[i] = Math.max(0, Math.min(255, v));
+          }
+          for (let i = 0, j = 0; i < px.length; i += 4, j++) px[i] = px[i + 1] = px[i + 2] = out[j];
+          ctx.putImageData(d, 0, 0);
+          resolve(cv.toDataURL('image/png'));
+        } catch (e) { resolve(dataUrl); }
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }
+
   async function ocrWithTesseract(dataUrl, onProgress) {
     try {
       if (!_ocrWorker) {
@@ -23,8 +69,9 @@ window.MathMod = (function () {
           _ocrTimeout(45000, 'init')
         ]);
       }
+      const clean = await preprocessForOCR(dataUrl);   // 先预处理，再识别
       const { data } = await Promise.race([
-        _ocrWorker.recognize(dataUrl),
+        _ocrWorker.recognize(clean),
         _ocrTimeout(45000, 'recognize')
       ]);
       return { text: (data.text || '').replace(/\s+/g, '') };
@@ -41,15 +88,19 @@ window.MathMod = (function () {
     // 3) 都没得用：返回空文本，由调用方引导用户手动选知识点（不再随机抽题）
     return Promise.resolve({ text: '' });
   }
-  /* 依据文字里的关键词二次确认知识点（真 OCR 返回的文本也走这一步） */
+  /* 依据文字里的关键词二次确认知识点（真 OCR 返回的文本也走这一步）。
+   * 返回 { kp, score }，score 是匹配到的关键词"权重和"（越长越专属的词权重越高）。
+   * 只有 score>=2 才算可信；垃圾文本里偶尔含单个弱字(如"角")不应自动出题。 */
   function guessKp(text) {
     let best = null, score = 0;
-    MATH_KP.forEach(kp => {
-      let s = 0;
-      kp.keywords.forEach(w => { if (text.indexOf(w) >= 0) s += w.length; });
-      if (s > score) { score = s; best = kp; }
-    });
-    return best;
+    if (text) {
+      MATH_KP.forEach(kp => {
+        let s = 0;
+        kp.keywords.forEach(w => { if (text.indexOf(w) >= 0) s += w.length; });
+        if (s > score) { score = s; best = kp; }
+      });
+    }
+    return { kp: best, score };
   }
 
   /* 没认出来 / 没匹配到知识点：让用户手动点选（返回 Promise<kpid|null>） */
@@ -185,8 +236,11 @@ window.MathMod = (function () {
       }
     });
 
-    let kp = guessKp(r.text) || (r.kp && KP_MAP[r.kp]) || null;
-    if (!kp) {
+    let kp = null;
+    const g = guessKp(r.text);
+    if (g.kp && g.score >= 2) kp = g.kp;            // 置信够高才自动出题
+    else if (r.kp && KP_MAP[r.kp]) kp = KP_MAP[r.kp];
+    if (!kp) {                                      // 否则引导用户手动选，绝不随机抽
       const chosen = await pickKp(box, r.text);
       if (!chosen) {
         box.innerHTML = `<div class="card" style="text-align:center;color:var(--ink2)">已取消，回到数学首页重新拍一张吧</div>`;
@@ -211,8 +265,10 @@ window.MathMod = (function () {
       ${s.photo ? `<img src="${s.photo}" style="width:100%;max-height:220px;object-fit:cover;border-radius:18px;box-shadow:var(--shadow)">` : ''}
       <div class="card">
         <div style="font-weight:800">🔍 我认出的题目</div>
-        <div style="color:var(--ink2);font-size:16px;margin-top:4px">${UI.esc(s.ocr || '（没有识别到内容，按下面的知识点出题）')}</div>
-        <div style="margin-top:10px;font-size:15px;color:var(--ink2)">知识点不对？点一下换成正确的：</div>
+        <textarea id="ocrEdit" rows="3" placeholder="识别有偏差？在这里改一下文字…"
+          style="width:100%;font-size:15px;line-height:1.6;padding:10px;border-radius:12px;border:1.5px solid #d9e2ec;resize:vertical;font-family:inherit;box-sizing:border-box;margin-top:6px">${UI.esc(s.ocr || '')}</textarea>
+        <button class="chip small bg-b js-rematch" style="margin-top:8px">✏️ 按我改的文字重新判断知识点</button>
+        <div style="margin-top:10px;font-size:15px;color:var(--ink2)">或者知识点不对？直接点正确的：</div>
         <div class="lesson-list" style="margin-top:6px">
           ${MATH_KP.map(k => `<span class="chip small ${k.id === s.kp ? 'b' : ''}" data-kp="${k.id}">${k.emoji} ${k.name}</span>`).join('')}
         </div>
@@ -286,6 +342,27 @@ window.MathMod = (function () {
       if (p[1] === 's') {
         const s = getSess(p[2]);
         if (!s) return;
+
+        /* 识别有偏差：用户改几个字 → 重新判断知识点并重出同类题 */
+        const rematch = UI.$('.js-rematch', view);
+        if (rematch) rematch.onclick = () => {
+          const ta = UI.$('#ocrEdit', view);
+          const txt = (ta ? ta.value : '') || '';
+          if (!txt.trim()) { UI.toast('先写点文字吧'); return; }
+          const g = guessKp(txt.replace(/\s+/g, ''));
+          s.ocr = txt;
+          if (g.kp && g.score >= 2) {
+            s.kp = g.kp.id; s.kpName = g.kp.name; s.emoji = g.kp.emoji; s.color = g.kp.color;
+            s.qs = genQuestions(g.kp.id); s.done = false; s.got = 0;
+            DB.set('sess_' + s.id, s);
+            UI.toast('已按「' + g.kp.name + '」重新出题');
+            location.reload();
+          } else {
+            DB.set('sess_' + s.id, s);
+            UI.toast('还是没匹配到，下面点正确的知识点吧');
+          }
+        };
+
         UI.$$('[data-kp]', view).forEach(ch => ch.onclick = () => {
           const kp = KP_MAP[ch.getAttribute('data-kp')];
           if (!kp || !s) return;
