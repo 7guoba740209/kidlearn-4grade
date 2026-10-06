@@ -572,6 +572,13 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
 .acct-msg.bad{color:var(--pink)}
 .acct-tip{font-size:12px;color:var(--ink2);text-align:center;margin-top:12px}
 
+/* 通用弹层（Modal.open 生成）：遮罩 + 居中卡片，超高时卡片内部可滚动 */
+.modal-mask{position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;
+  padding:16px;background:rgba(40,25,10,.45);opacity:0;transition:opacity .18s;box-sizing:border-box}
+.modal-mask.on{opacity:1}
+.modal{width:100%;max-width:420px;max-height:88vh;overflow:auto;box-sizing:border-box;background:#fff;
+  border-radius:22px;padding:18px 16px 16px;box-shadow:0 20px 60px rgba(80,50,20,.3);
+  -webkit-overflow-scrolling:touch}
 /* 账号菜单 / 管理后台 通用弹层 */
 .acct-modal .modal{max-width:380px}
 .acct-menu{padding:6px}
