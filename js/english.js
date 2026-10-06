@@ -99,7 +99,7 @@ window.English = (function () {
     const mode = p[2], bid = p[3], mid = p[4];
     const b = getBook(bid), m = getMod(b, mid);
     const titleMap = { spell: '听音拼写', scramble: '拼词游戏', match: '消消乐', meaning: '词义配对', listen: '听音选词' };
-    const lv = levelOf(DB.get('points', 0));
+    const lv = levelOf();
     return `<div class="page-head"><span class="back" data-go="#/en/${bid}">‹</span>
         <h2>${titleMap[mode]}</h2><span class="spacer"></span>
         <span class="chip small b">${m.name}</span></div>
@@ -121,9 +121,9 @@ window.English = (function () {
     let words = m.words.filter(spellable);
     if (words.length < 3) words = m.words;
     G = {
-      mode, words: UI.shuffle(words), i: 0, letters: [], built: [], used: [],
+      mode, words: Accounts.pickByMastery(words, words.length), i: 0, letters: [], built: [], used: [],
       timer: null, left: APP_CONFIG.EN_TIMED_SECONDS || 60,
-      earned: 0, streak: 0, right: 0, total: 0, hinted: false, gave: 0
+      earned: 0, streak: 0, right: 0, total: 0, hinted: false, gave: 0, startT: Date.now()
     };
     step(true);
   }
@@ -141,7 +141,7 @@ window.English = (function () {
     // 配对游戏：中英文都有即可，优先选有中文释义、英文不太长的词条
     let pool = m.words.filter(w => w.zh && String(w.en).trim());
     if (pool.length < need) pool = m.words;
-    pool = UI.shuffle(pool).slice(0, Math.min(need, pool.length));
+    pool = Accounts.pickByMastery(pool, Math.min(need, pool.length));
     const cards = [];
     pool.forEach(w => {
       cards.push({ key: w.en, text: String(w.en).trim(), type: 'en', word: w });
@@ -149,7 +149,7 @@ window.English = (function () {
     });
     G = {
       mode, bid, mid, words: pool, cards: UI.shuffle(cards), selected: [], matched: 0,
-      total: pool.length, earned: 0, streak: 0, right: 0, lock: false
+      total: pool.length, earned: 0, streak: 0, right: 0, lock: false, startT: Date.now()
     };
     renderMatch();
   }
@@ -202,6 +202,7 @@ window.English = (function () {
         G.earned += 10 + Math.min(4, G.streak - 1);
         SFX.right(); FX.burst(24);
         speakNow(ca.word.en);
+        Accounts.recordWord(ca.word.en, true);
         renderMatch();
         if (G.matched >= G.total) finish(false);
       }, 260);
@@ -226,18 +227,17 @@ window.English = (function () {
     const b = getBook(bid), m = getMod(b, mid);
     let pool = m.words.filter(playable);
     if (pool.length < 4) pool = m.words;
-    pool = UI.shuffle(pool);
-    const qs = [];
     const total = Math.min(8, pool.length);
-    for (let i = 0; i < total; i++) {
-      const target = pool[i];
-      const others = pool.filter(w => w.en !== target.en).slice(0, 3);
+    const targets = Accounts.pickByMastery(pool, total);
+    const qs = [];
+    targets.forEach(target => {
+      const others = UI.shuffle(pool.filter(w => w.en !== target.en)).slice(0, 3);
       const opts = UI.shuffle([target].concat(others));
       qs.push({ target, options: opts });
-    }
+    });
     G = {
       mode: 'listen', bid, mid, words: pool, qs, i: 0,
-      right: 0, total: qs.length, earned: 0, streak: 0, lock: false
+      right: 0, total: qs.length, earned: 0, streak: 0, lock: false, startT: Date.now()
     };
     stepListen();
   }
@@ -281,11 +281,13 @@ window.English = (function () {
       G.right++; G.total++; G.streak++;
       G.earned += 10 + Math.min(4, G.streak - 1);
       SFX.right(); FX.burst(28);
+      Accounts.recordWord(q.target.en, true);
       UI.toast(`答对啦！+${10 + Math.min(4, G.streak - 1)}⭐`);
     } else {
       btn.classList.add('bad');
       G.total++; G.streak = 0;
       SFX.wrong();
+      Accounts.recordWord(q.target.en, false);
       // 高亮正确答案
       opts.forEach((b, i) => { if (q.options[i].en === q.target.en) b.classList.add('ok'); });
       UI.toast('选错啦，正确答案是 ' + q.target.en);
@@ -430,9 +432,10 @@ window.English = (function () {
       const bonus = Math.min(5, G.streak - 1);
       const get = 10 + bonus - (G.hinted ? 3 : 0);
       G.earned += Math.max(1, get);
-      const before = levelOf(DB.get('points', 0)).name;
+      const before = levelOf().name;
       addPoints(get);
-      const after = levelOf(DB.get('points', 0)).name;
+      const after = levelOf().name;
+      Accounts.recordWord(G.cur.en, true);
       FX.burst(28);
       UI.toast(G.streak >= 3 ? `🔥 连对${G.streak}个！+${get}⭐` : `太棒了！+${get}⭐`);
       if (before !== after) setTimeout(() => UI.toast('🎉 升级啦！你是「' + after + '」了'), 600);
@@ -447,6 +450,7 @@ window.English = (function () {
     } else {
       SFX.wrong();
       G.total++; G.streak = 0;
+      Accounts.recordWord(G.cur.en, false);
       const slots = UI.$$('#slots .slot');
       slots.forEach(s => s.classList.add('bad'));
       UI.toast('拼错啦，正确拼写是 ' + G.cur.en);
@@ -473,6 +477,7 @@ window.English = (function () {
 
   function finish(isTimeUp) {
     if (G.timer) { clearInterval(G.timer); G.timer = null; }
+    if (G.startT) Accounts.recordPlay(Date.now() - G.startT);
     const box = document.getElementById('gameBox');
     const pct = G.total ? Math.round(G.right / G.total * 100) : 0;
     const em = pct >= 90 ? '🏆' : pct >= 70 ? '🎉' : pct >= 50 ? '👍' : '🌱';
