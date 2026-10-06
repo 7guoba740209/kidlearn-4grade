@@ -43,9 +43,10 @@ window.English = (function () {
           <h3>${m.name} · ${m.topic}</h3>
           <div style="color:var(--ink2);font-size:15px;margin-bottom:10px">共 ${m.words.length} 个单词</div>
           <div class="grid2">
-            <a class="btn bg-b" href="#/en/g/spell/${b.id}/${m.id}"><span>🎧</span>听音拼写</a>
-            <a class="btn bg-p" href="#/en/g/scramble/${b.id}/${m.id}"><span>🔀</span>拼词游戏</a>
-            <a class="btn bg-o" href="#/en/g/timed/${b.id}/${m.id}"><span>⏱️</span>限时闯关</a>
+            <a class="btn bg-b" href="#/en/g/match/${b.id}/${m.id}"><span>🧩</span>消消乐</a>
+            <a class="btn bg-p" href="#/en/g/meaning/${b.id}/${m.id}"><span>🔗</span>词义配对</a>
+            <a class="btn bg-o" href="#/en/g/listen/${b.id}/${m.id}"><span>🔊</span>听音选词</a>
+            <a class="btn bg-c" href="#/en/g/scramble/${b.id}/${m.id}"><span>🔀</span>拼词游戏</a>
             <a class="btn ghost" href="#/en/${b.id}/${m.id}"><span>📖</span>单词表</a>
           </div>
         </div>`).join('')}`;
@@ -71,9 +72,10 @@ window.English = (function () {
   function modPage(p) {
     const b = getBook(p[1]), m = getMod(b, p[2]);
     const games = [
-      ['spell', '🎧', '听音拼写', '听到发音，把单词拼出来', 'bg-b'],
-      ['scramble', '🔀', '拼词游戏', '打乱的字母，拼回正确单词', 'bg-p'],
-      ['timed', '⏱️', '限时闯关', `${APP_CONFIG.EN_TIMED_SECONDS} 秒内能拼几个`, 'bg-o']
+      ['match', '🧩', '消消乐', '中英文卡片配对，8 个单词', 'bg-b'],
+      ['meaning', '🔗', '词义配对', '把英文和中文意思配成一对', 'bg-p'],
+      ['listen', '🔊', '听音选词', '听发音，选出听到的单词', 'bg-o'],
+      ['scramble', '🔀', '拼词游戏', '拼出这个单词', 'bg-c']
     ];
     return `<div class="page-head"><span class="back" data-go="#/en/${b.id}">‹</span><h2>${m.name}</h2></div>
       <p class="big-title">${UI.esc(m.topic)}</p>
@@ -96,7 +98,7 @@ window.English = (function () {
   function game(p) {
     const mode = p[2], bid = p[3], mid = p[4];
     const b = getBook(bid), m = getMod(b, mid);
-    const titleMap = { spell: '听音拼写', scramble: '拼词游戏', timed: '限时闯关' };
+    const titleMap = { spell: '听音拼写', scramble: '拼词游戏', match: '消消乐', meaning: '词义配对', listen: '听音选词' };
     const lv = levelOf(DB.get('points', 0));
     return `<div class="page-head"><span class="back" data-go="#/en/${bid}">‹</span>
         <h2>${titleMap[mode]}</h2><span class="spacer"></span>
@@ -111,8 +113,11 @@ window.English = (function () {
 
   /* ---------- 游戏引擎 ---------- */
   function startGame(mode, bid, mid) {
+    if (mode === 'match' || mode === 'meaning') return startMatchGame(mode, bid, mid);
+    if (mode === 'listen') return startListenGame(bid, mid);
+    if (mode === 'timed') return startMatchGame('match', bid, mid); // 旧"限时闯关"入口改为消消乐
     const b = getBook(bid), m = getMod(b, mid);
-    // 听音拼写/限时闯关只出可拼的单词；拼词游戏同理。词组单独在单词表里点读。
+    // 听音拼写只出可拼的单词；拼词游戏同理。词组单独在单词表里点读。
     let words = m.words.filter(spellable);
     if (words.length < 3) words = m.words;
     G = {
@@ -127,6 +132,165 @@ window.English = (function () {
     Say.en(w, slow ? (APP_CONFIG.EN_SPEAK_RATE || .75) * .85 : APP_CONFIG.EN_SPEAK_RATE);
     const s = document.getElementById('sSay');
     if (s) { s.classList.add('spk-flash'); setTimeout(() => s.classList.remove('spk-flash'), 420); }
+  }
+
+  /* ---------- 消消乐 / 词义配对（通用） ---------- */
+  function startMatchGame(mode, bid, mid) {
+    const b = getBook(bid), m = getMod(b, mid);
+    const need = mode === 'match' ? 8 : 6;
+    // 配对游戏：中英文都有即可，优先选有中文释义、英文不太长的词条
+    let pool = m.words.filter(w => w.zh && String(w.en).trim());
+    if (pool.length < need) pool = m.words;
+    pool = UI.shuffle(pool).slice(0, Math.min(need, pool.length));
+    const cards = [];
+    pool.forEach(w => {
+      cards.push({ key: w.en, text: String(w.en).trim(), type: 'en', word: w });
+      cards.push({ key: w.en, text: String(w.zh).trim(), type: 'zh', word: w });
+    });
+    G = {
+      mode, bid, mid, words: pool, cards: UI.shuffle(cards), selected: [], matched: 0,
+      total: pool.length, earned: 0, streak: 0, right: 0, lock: false
+    };
+    renderMatch();
+  }
+
+  function renderMatch() {
+    const box = document.getElementById('gameBox');
+    if (!box || !G) return;
+    const cols = G.mode === 'match' ? 4 : 3;
+    const title = G.mode === 'match' ? '点掉能配成一对的卡片' : '把英文和中文配成一对';
+    document.getElementById('gProg').textContent = `已完成 ${G.matched} / ${G.total}`;
+    document.getElementById('gTimer').style.display = 'none';
+
+    box.innerHTML = `
+      <div class="card match-card">
+        <div class="match-title">${title}</div>
+        <div class="match-grid cols-${cols}" id="matchGrid">
+          ${G.cards.map((c, i) => `
+            <div class="match-tile ${c.solved ? 'solved' : ''} ${c.wrong ? 'wrong' : ''} ${c.selected ? 'selected' : ''}" data-i="${i}">
+              <div class="mt-inner">
+                <span class="mt-text ${c.type === 'zh' ? 'zh' : 'en'}">${UI.esc(c.text)}</span>
+              </div>
+            </div>`).join('')}
+        </div>
+        <div class="combo" id="combo">${G.streak >= 2 ? '🔥 连对 ' + G.streak + ' 对！' : ''}</div>
+      </div>`;
+
+    UI.$$('.match-tile', box).forEach(t => {
+      t.onclick = () => onMatchCard(Number(t.getAttribute('data-i')));
+    });
+  }
+
+  function onMatchCard(idx) {
+    if (!G || G.lock) return;
+    const c = G.cards[idx];
+    if (!c || c.solved || c.selected) return;
+    c.selected = true;
+    G.selected.push(idx);
+    SFX.tap();
+    renderMatch();
+    if (G.selected.length < 2) return;
+    const [a, b] = G.selected;
+    const ca = G.cards[a], cb = G.cards[b];
+    if (ca.key === cb.key && ca.type !== cb.type) {
+      // 配对成功
+      setTimeout(() => {
+        ca.solved = cb.solved = true;
+        ca.selected = cb.selected = false;
+        G.selected = [];
+        G.matched++; G.right++; G.streak++;
+        G.earned += 10 + Math.min(4, G.streak - 1);
+        SFX.right(); FX.burst(24);
+        speakNow(ca.word.en);
+        renderMatch();
+        if (G.matched >= G.total) finish(false);
+      }, 260);
+    } else {
+      G.lock = true;
+      ca.wrong = cb.wrong = true;
+      renderMatch();
+      setTimeout(() => {
+        ca.selected = cb.selected = false;
+        ca.wrong = cb.wrong = false;
+        G.selected = [];
+        G.streak = 0;
+        G.lock = false;
+        SFX.wrong();
+        renderMatch();
+      }, 700);
+    }
+  }
+
+  /* ---------- 听音选词 ---------- */
+  function startListenGame(bid, mid) {
+    const b = getBook(bid), m = getMod(b, mid);
+    let pool = m.words.filter(playable);
+    if (pool.length < 4) pool = m.words;
+    pool = UI.shuffle(pool);
+    const qs = [];
+    const total = Math.min(8, pool.length);
+    for (let i = 0; i < total; i++) {
+      const target = pool[i];
+      const others = pool.filter(w => w.en !== target.en).slice(0, 3);
+      const opts = UI.shuffle([target].concat(others));
+      qs.push({ target, options: opts });
+    }
+    G = {
+      mode: 'listen', bid, mid, words: pool, qs, i: 0,
+      right: 0, total: qs.length, earned: 0, streak: 0, lock: false
+    };
+    stepListen();
+  }
+
+  function stepListen() {
+    const box = document.getElementById('gameBox');
+    if (!box || !G) return;
+    if (G.i >= G.qs.length) return finish(false);
+    const q = G.qs[G.i];
+    document.getElementById('gProg').textContent = `第 ${G.i + 1} / ${G.qs.length} 题`;
+    document.getElementById('gTimer').style.display = 'none';
+
+    box.innerHTML = `
+      <div class="card listen-card">
+        <div class="listen-title">听音选词</div>
+        <button class="listen-speak" id="sListenSay">🔊 点喇叭听发音</button>
+        <div class="listen-hint">听清楚了吗？点喇叭可以再听</div>
+        <div class="listen-options" id="listenOpts">
+          ${q.options.map((w, idx) => `
+            <button class="listen-opt" data-i="${idx}">${UI.esc(w.en)}</button>`).join('')}
+        </div>
+      </div>`;
+
+    const play = () => speakNow(q.target.en);
+    document.getElementById('sListenSay').onclick = play;
+    UI.$$('.listen-opt', box).forEach(btn => {
+      btn.onclick = () => onListenPick(Number(btn.getAttribute('data-i')), q);
+    });
+    setTimeout(play, 260);
+  }
+
+  function onListenPick(idx, q) {
+    if (!G || G.lock) return;
+    const picked = q.options[idx];
+    const correct = picked.en === q.target.en;
+    const opts = UI.$$('.listen-opt');
+    opts.forEach(btn => btn.disabled = true);
+    const btn = opts[idx];
+    if (correct) {
+      btn.classList.add('ok');
+      G.right++; G.total++; G.streak++;
+      G.earned += 10 + Math.min(4, G.streak - 1);
+      SFX.right(); FX.burst(28);
+      UI.toast(`答对啦！+${10 + Math.min(4, G.streak - 1)}⭐`);
+    } else {
+      btn.classList.add('bad');
+      G.total++; G.streak = 0;
+      SFX.wrong();
+      // 高亮正确答案
+      opts.forEach((b, i) => { if (q.options[i].en === q.target.en) b.classList.add('ok'); });
+      UI.toast('选错啦，正确答案是 ' + q.target.en);
+    }
+    setTimeout(() => { G.i++; stepListen(); }, correct ? 900 : 1500);
   }
 
   /* 保证「题目框 + 所有字母块」在手机上一屏装得下（不用上下拉）：
@@ -169,21 +333,29 @@ window.English = (function () {
     document.getElementById('gTimer').style.display = G.mode === 'timed' ? 'block' : 'none';
 
     box.innerHTML = `
-      <div class="card">
-        <div class="word-zh">${G.mode === 'scramble' ? '<span style="font-size:22px">拼出这个单词 →</span>' : '🎧 听一听，拼出这个单词'}</div>
-        <div class="word-hint-row">
-          <span class="zh">${UI.esc(w.zh)}</span>
-          <button class="mini-spk" id="sZhSay">🔊 再听一遍</button>
+      <div class="card spell-card">
+        <div class="spell-title-row">
+          <div class="spell-title">${G.mode === 'scramble' ? '拼词游戏' : '听音拼写'}</div>
+          <div class="spell-progress">${G.i + 1} / ${G.words.length}</div>
         </div>
-        <div class="word-hint">${w.hint ? '💡 ' + UI.esc(w.hint) : ''}</div>
-        <div class="slots" id="slots">${letters.map(() => '<div class="slot"></div>').join('')}</div>
-        <div class="tiles" id="tiles">${pool.map((c, i) => `<div class="tile" data-c="${c}" data-i="${i}">${c}</div>`).join('')}</div>
-        <div class="combo" id="combo">${G.streak >= 2 ? '🔥 连对 ' + G.streak + ' 个！' : ''}</div>
-        <div class="game-ctrl">
-          <button class="btn ghost" id="sHint">💡 提示</button>
-          <button class="btn bg-y" id="sClear" style="color:#6A4A05">↩️ 清空</button>
+        <div class="spell-sub">${G.mode === 'scramble' ? '拼出这个单词 →' : '🎧 听一听，拼出这个单词'}</div>
+        <div class="spell-body">
+          <div class="spell-side">
+            <button class="spell-sidebtn" id="sHint"><span class="ico">💡</span><span>提示</span></button>
+            <button class="spell-sidebtn spell-skip" id="sSkip"><span class="ico">⏭️</span><span>听不清，跳过这个</span></button>
+            <button class="spell-sidebtn spell-clear" id="sClear"><span class="ico">↩️</span><span>清空</span></button>
+          </div>
+          <div class="spell-board">
+            <div class="word-hint-row">
+              <span class="zh">${UI.esc(w.zh)}</span>
+              <button class="mini-spk" id="sZhSay">🔊 再听一遍</button>
+            </div>
+            <div class="word-hint">${w.hint ? '💡 ' + UI.esc(w.hint) : ''}</div>
+            <div class="slots" id="slots">${letters.map(() => '<div class="slot"></div>').join('')}</div>
+            <div class="tiles" id="tiles">${pool.map((c, i) => `<div class="tile" data-c="${c}" data-i="${i}">${c}</div>`).join('')}</div>
+            <div class="combo" id="combo">${G.streak >= 2 ? '🔥 连对 ' + G.streak + ' 个！' : ''}</div>
+          </div>
         </div>
-        <button class="btn bg-b" id="sSkip" style="width:100%;margin-top:10px">⏭️ ${G.mode === 'timed' ? '换一个' : '听不清，跳过这个'}</button>
       </div>`;
 
     document.getElementById('sZhSay').onclick = (e) => { e.stopPropagation(); speakNow(w.en, true); };
@@ -304,15 +476,17 @@ window.English = (function () {
     const msg = pct >= 90 ? '太厉害啦，几乎全对！' : pct >= 70 ? '很不错，再练练就满分！' : pct >= 50 ? '有进步，继续加油！' : '别灰心，多听几遍就会啦～';
     SFX.win(); FX.burst(80);
     const mode0 = G.mode;
-    const bid = (location.hash.split('/')[4]) || EN_BOOKS[0].id;
-    const mid = (location.hash.split('/')[5]) || getBook(bid).units[0].id;
+    const bid = G.bid || (location.hash.split('/')[4]) || EN_BOOKS[0].id;
+    const mid = G.mid || (location.hash.split('/')[5]) || getBook(bid).units[0].id;
     // 结算页也把本模块单词全部列出来，随时点读复习
     const list = getMod(getBook(bid), mid).words;
+    const label = mode0 === 'match' ? `配对 ${G.right} 对` : mode0 === 'meaning' ? `配对 ${G.right} 对` : mode0 === 'listen' ? `答对 ${G.right} 题` : `拼对 ${G.right} 个`;
+    const title = isTimeUp ? '时间到！' : '这一组完成啦！';
     box.innerHTML = `
       <div class="card result">
         <div class="em">${em}</div>
-        <h2>${isTimeUp ? '时间到！' : '这一组完成啦！'}</h2>
-        <div class="sc">拼对 ${G.right} 个 · 正确率 ${pct}% · 本次 ⭐ ${G.earned}</div>
+        <h2>${title}</h2>
+        <div class="sc">${label} · 正确率 ${pct}% · 本次 ⭐ ${G.earned}</div>
         <div style="margin:10px 0 4px;font-size:18px;color:var(--ink2)">${msg}</div>
         <div style="margin-top:14px;font-size:16px;font-weight:800;color:var(--ink)">📖 点任意一行听发音</div>
         <div style="text-align:left;max-height:38vh;overflow:auto;margin-top:6px">
