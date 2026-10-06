@@ -157,7 +157,7 @@ window.English = (function () {
   function renderMatch() {
     const box = document.getElementById('gameBox');
     if (!box || !G) return;
-    const cols = G.mode === 'match' ? 4 : 3;
+    const cols = G.mode === 'match' ? 4 : 2;
     const title = G.mode === 'match' ? '点掉能配成一对的卡片' : '把英文和中文配成一对';
     document.getElementById('gProg').textContent = `已完成 ${G.matched} / ${G.total}`;
     document.getElementById('gTimer').style.display = 'none';
@@ -253,7 +253,7 @@ window.English = (function () {
     box.innerHTML = `
       <div class="card listen-card">
         <div class="listen-title">听音选词</div>
-        <button class="listen-speak" id="sListenSay">🔊 点喇叭听发音</button>
+        <button class="listen-speak" id="sListenSay" aria-label="点喇叭听发音">🔊</button>
         <div class="listen-hint">听清楚了吗？点喇叭可以再听</div>
         <div class="listen-options" id="listenOpts">
           ${q.options.map((w, idx) => `
@@ -325,7 +325,10 @@ window.English = (function () {
 
     const letters = w.en.toLowerCase().split('');
     const extra = ['a', 'e', 'i', 'o', 'u', 'r', 's', 't', 'n', 'l', 'm', 'c', 'd', 'p', 'h', 'g'];
-    const pool = UI.shuffle(letters.concat(UI.shuffle(extra).slice(0, 2)));
+    // 干扰字母：让总 tile 数尽量排得整齐（参考图每行 4~5 个）
+    const needExtra = letters.length <= 3 ? 1 : letters.length <= 5 ? 2 : 3;
+    const pool = UI.shuffle(letters.concat(UI.shuffle(extra).slice(0, needExtra)));
+    const tileCols = pool.length <= 4 ? pool.length : pool.length <= 6 ? 3 : pool.length <= 8 ? 4 : pool.length <= 10 ? 5 : 4;
     G.cur = w; G.letters = pool; G.built = []; G.used = []; G.hinted = false;
 
     document.getElementById('gProg').textContent =
@@ -352,10 +355,10 @@ window.English = (function () {
             </div>
             <div class="word-hint">${w.hint ? '💡 ' + UI.esc(w.hint) : ''}</div>
             <div class="slots" id="slots">${letters.map(() => '<div class="slot"></div>').join('')}</div>
-            <div class="tiles" id="tiles">${pool.map((c, i) => `<div class="tile" data-c="${c}" data-i="${i}">${c}</div>`).join('')}</div>
-            <div class="combo" id="combo">${G.streak >= 2 ? '🔥 连对 ' + G.streak + ' 个！' : ''}</div>
+            <div class="tiles" id="tiles" data-cols="${tileCols}">${pool.map((c, i) => `<div class="tile" data-c="${c}" data-i="${i}"><span>${c}</span></div>`).join('')}</div>
           </div>
         </div>
+        <div class="combo" id="combo">${G.streak >= 2 ? '🔥 连对 ' + G.streak + ' 个！' : ''}</div>
       </div>`;
 
     document.getElementById('sZhSay').onclick = (e) => { e.stopPropagation(); speakNow(w.en, true); };
