@@ -59,8 +59,8 @@ window.English = (function () {
       <p class="sub-title">${m.topic} · 点任意一行就能听发音</p>
       <div class="card">
         ${m.words.map(w => `
-          <div class="js-say" data-w="${UI.esc(w.en)}" style="justify-content:space-between;padding:12px 4px;border-bottom:1px solid var(--line)">
-            <b style="font-size:20px">${UI.esc(w.en)}</b>
+          <div class="js-say wl-row" data-w="${UI.esc(w.en)}">
+            <b class="wl-en">${UI.esc(w.en)}</b>
             <span style="display:flex;align-items:center;gap:8px;color:var(--ink2)">
               ${UI.esc(w.zh)}<span class="spk">🔊</span></span>
           </div>`).join('')}
@@ -86,8 +86,8 @@ window.English = (function () {
       <div class="card" style="margin-top:16px">
         <div style="font-weight:800;margin-bottom:6px">📖 单词速览（点一行听发音）</div>
         ${m.words.map(w => `
-          <div class="js-say" data-w="${UI.esc(w.en)}" style="justify-content:space-between;padding:9px 2px;border-bottom:1px solid var(--line)">
-            <b>${UI.esc(w.en)}</b>
+          <div class="js-say wl-row wl-row2" data-w="${UI.esc(w.en)}">
+            <b class="wl-en">${UI.esc(w.en)}</b>
             <span style="display:flex;align-items:center;gap:8px;color:var(--ink2)">
               ${UI.esc(w.zh)}<span class="spk">🔊</span></span>
           </div>`).join('')}
