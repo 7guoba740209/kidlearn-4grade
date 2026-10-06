@@ -32,7 +32,7 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
   border-bottom:2px solid var(--line);
 }
 #topbar .logo{font-size:26px}
-#topbar h1{font-size:22px;margin:0;font-weight:800;letter-spacing:.5px;flex:1}
+#topbar h1{font-size:22px;margin:0;font-weight:800;letter-spacing:.5px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #topbar .score{
   background:linear-gradient(135deg,var(--yellow),#FFA726); color:#fff; font-weight:800;
   padding:6px 16px; border-radius:999px; font-size:18px; box-shadow:0 3px 8px rgba(255,167,38,.4);
@@ -529,3 +529,84 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
   .combo{height:0;margin:0;overflow:hidden}
   #gameBox .card{padding:11px 11px 10px}
 }
+
+/* ================= 多账号：登录门禁 / 顶栏入口 / 管理后台 ================= */
+/* 顶栏账号入口 */
+#topbar{position:relative}
+.acct-trigger{margin-left:auto;display:flex;align-items:center;gap:5px;background:#fff;border:2px solid var(--line);
+  border-radius:999px;padding:4px 10px 4px 4px;font-size:14px;font-weight:800;color:var(--ink);cursor:pointer}
+.acct-trigger .av.sm{width:24px;height:24px;font-size:14px}
+.acct-trigger .nm{max-width:64px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.av{width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#FFB36B,#FF8A3D);color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;flex:none}
+.av.sm{width:30px;height:30px;font-size:16px}
+.av.admin{background:linear-gradient(135deg,#FFC24D,#F5A623)}
+
+/* 登录遮罩 */
+.acct-mask{position:fixed;inset:0;z-index:200;background:linear-gradient(160deg,#FFF3E2,#FFE6CC);
+  display:flex;align-items:center;justify-content:center;padding:18px;opacity:0;transition:opacity .2s}
+.acct-mask.on{opacity:1}
+.acct-card{width:100%;max-width:380px;background:#fff;border-radius:24px;padding:20px 18px 16px;
+  box-shadow:0 18px 50px rgba(150,100,50,.25)}
+.acct-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.acct-logo{font-size:34px}
+.acct-title{font-size:20px;font-weight:900;color:var(--ink)}
+.acct-sub{font-size:14px;color:var(--ink2);margin-top:2px}
+.acct-tabs{display:flex;background:#F3EEE6;border-radius:14px;padding:4px;margin-bottom:14px}
+.acct-tab{flex:1;border:none;background:transparent;padding:9px 0;border-radius:11px;font-size:15px;font-weight:800;color:var(--ink2)}
+.acct-tab.on{background:#fff;color:var(--orange);box-shadow:0 2px 6px rgba(150,100,50,.12)}
+.acct-quick{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.acct-chip{display:flex;align-items:center;gap:6px;border:2px solid var(--line);background:#fff;border-radius:999px;
+  padding:5px 11px 5px 5px;font-size:14px;font-weight:800;color:var(--ink);cursor:pointer}
+.acct-chip .av{width:28px;height:28px;font-size:15px}
+.acct-chip .nm{max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acct-chip .tag{font-size:11px;background:#F5A623;color:#fff;border-radius:6px;padding:1px 5px;font-weight:800}
+.acct-chip.admin{border-color:#F5A623}
+.acct-in{width:100%;box-sizing:border-box;border:2px solid var(--line);border-radius:14px;padding:13px 14px;
+  font-size:16px;margin-bottom:10px;color:var(--ink);background:#FBFAF7}
+.acct-in:focus{outline:none;border-color:var(--orange)}
+.acct-btn{width:100%;border:none;border-radius:14px;padding:14px 0;font-size:17px;font-weight:900;color:#fff;
+  background:linear-gradient(135deg,#FFB36B,#FF8A3D);box-shadow:0 6px 16px rgba(255,138,61,.35);cursor:pointer}
+.acct-btn:active{transform:scale(.98)}
+.acct-msg{font-size:14px;color:var(--pink);min-height:20px;margin-top:6px;text-align:center}
+.acct-msg.bad{color:var(--pink)}
+.acct-tip{font-size:12px;color:var(--ink2);text-align:center;margin-top:12px}
+
+/* 账号菜单 / 管理后台 通用弹层 */
+.acct-modal .modal{max-width:380px}
+.acct-menu{padding:6px}
+.am-head{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.am-nm{font-size:18px;font-weight:900;color:var(--ink)}
+.am-sub{font-size:13px;color:var(--ink2)}
+.am-stats{display:flex;gap:8px;margin-bottom:14px}
+.am-stats>div{flex:1;background:#F7FAF5;border-radius:14px;padding:10px 4px;text-align:center}
+.am-stats b{display:block;font-size:20px;color:var(--orange)}
+.am-stats span{font-size:12px;color:var(--ink2)}
+.am-btn{width:100%;border:2px solid var(--line);background:#fff;border-radius:14px;padding:13px 0;
+  font-size:16px;font-weight:800;color:var(--ink);margin-top:10px;cursor:pointer}
+.am-btn:active{transform:scale(.98)}
+.am-btn.ghost{color:var(--ink2)}
+.am-btn.danger{border-color:#FFB3C1;color:var(--pink)}
+
+.admin-wrap{padding:4px}
+.admin-head{font-size:18px;font-weight:900;color:var(--ink);margin-bottom:12px}
+.admin-list{display:flex;flex-direction:column;gap:10px;max-height:54vh;overflow:auto}
+.admin-row{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#F7FAF5;
+  border-radius:16px;padding:10px 12px}
+.ar-left{display:flex;align-items:center;gap:10px;min-width:0}
+.ar-nm{font-size:15px;font-weight:800;color:var(--ink)}
+.ar-sub{font-size:12px;color:var(--ink2);margin-top:2px}
+.ar-act{display:flex;gap:6px;flex:none}
+.ar-btn{border:2px solid var(--line);background:#fff;border-radius:10px;padding:7px 11px;font-size:13px;
+  font-weight:800;color:var(--ink);cursor:pointer}
+.ar-btn.danger{border-color:#FFB3C1;color:var(--pink)}
+.ad-sum{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.ad-sum>div{flex:1;min-width:56px;background:#F7FAF5;border-radius:14px;padding:9px 4px;text-align:center}
+.ad-sum b{display:block;font-size:18px;color:var(--orange)}
+.ad-sum span{font-size:11px;color:var(--ink2)}
+.ad-title{font-size:15px;font-weight:800;color:var(--ink);margin-bottom:8px}
+.ad-wrong{display:flex;flex-wrap:wrap;gap:7px}
+.wtag{background:#FFEAEF;color:#C23B5B;border-radius:999px;padding:5px 10px;font-size:13px;font-weight:800}
+.wtag i{font-style:normal;font-weight:700;opacity:.7;margin-left:3px;font-size:11px}
+.ad-warn{font-size:13px;color:var(--ink2);background:#FFF4E8;border-radius:12px;padding:10px 12px;margin-bottom:12px}
+.muted{color:var(--ink2);font-size:14px}
