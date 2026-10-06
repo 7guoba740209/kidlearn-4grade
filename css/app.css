@@ -407,6 +407,66 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
   border-radius:calc(14px*var(--fit,1));font-size:calc(26px*var(--fit,1))}
 .game-ctrl{margin-top:calc(10px*var(--fit,1))}
 .game-ctrl .btn{min-height:calc(52px*var(--fit,1));font-size:calc(17px*var(--fit,1))}
+
+/* ================= 英语新游戏：消消乐 / 词义配对 / 听音选词 / 拼词 ================= */
+.match-card{padding:14px 12px}
+.match-title{text-align:center;font-size:18px;font-weight:800;color:var(--blue);margin:0 0 14px}
+.match-grid{display:grid;gap:10px}
+.match-grid.cols-4{grid-template-columns:repeat(4,1fr)}
+.match-grid.cols-3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:360px){.match-grid.cols-4{grid-template-columns:repeat(3,1fr)}}
+.match-tile{
+  aspect-ratio:1/1;border-radius:16px;background:#fff;box-shadow:0 4px 10px rgba(120,90,60,.14);
+  display:flex;align-items:center;justify-content:center;padding:6px;cursor:pointer;
+  transition:transform .12s,box-shadow .12s,border-color .12s;border:3px solid transparent
+}
+.match-tile:active{transform:scale(.94)}
+.match-tile .mt-inner{text-align:center;width:100%;display:flex;align-items:center;justify-content:center}
+.match-tile .mt-text{font-size:16px;font-weight:800;line-height:1.25;color:var(--ink);word-break:break-word}
+.match-tile .mt-text.zh{font-size:15px;font-weight:700;color:var(--ink2)}
+.match-tile.selected{border-color:var(--blue);background:#E8F1FF;transform:scale(1.03)}
+.match-tile.wrong{border-color:var(--pink);animation:shake .35s;background:#FFEAEF}
+.match-tile.solved{opacity:0;pointer-events:none;transform:scale(.9)}
+
+.listen-card{padding:18px 14px;text-align:center}
+.listen-title{font-size:18px;font-weight:800;color:var(--blue);margin-bottom:12px}
+.listen-speak{
+  width:96px;height:96px;border-radius:50%;font-size:42px;line-height:1;
+  background:linear-gradient(135deg,#6AA8FF,var(--blue-d));color:#fff;
+  box-shadow:0 6px 18px rgba(61,139,255,.35);margin:0 auto;display:flex;align-items:center;justify-content:center
+}
+.listen-speak:active{transform:scale(.93)}
+.listen-hint{color:var(--ink2);font-size:15px;margin:12px 0 18px}
+.listen-options{display:flex;flex-direction:column;gap:12px}
+.listen-opt{
+  width:100%;min-height:60px;padding:12px 18px;border-radius:16px;
+  background:#fff;border:3px solid var(--line);font-size:22px;font-weight:800;color:var(--ink);
+  box-shadow:0 3px 8px rgba(120,90,60,.1);transition:transform .12s,border-color .12s,background .12s
+}
+.listen-opt:active{transform:scale(.98)}
+.listen-opt.ok{border-color:var(--green);background:#E7F8EF}
+.listen-opt.bad{border-color:var(--pink);background:#FFEAEF;animation:shake .35s}
+
+.spell-card{padding:14px 12px}
+.spell-title-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.spell-title{font-size:20px;font-weight:900;color:var(--ink)}
+.spell-progress{font-size:15px;font-weight:800;color:var(--ink2);background:#fff;padding:4px 12px;border-radius:999px}
+.spell-sub{text-align:center;font-size:22px;font-weight:800;margin-bottom:12px}
+.spell-body{display:flex;gap:10px;align-items:flex-start}
+.spell-side{
+  flex:none;width:72px;display:flex;flex-direction:column;gap:10px
+}
+.spell-sidebtn{
+  flex:1;min-height:64px;border-radius:14px;font-size:13px;font-weight:800;color:#fff;
+  background:#fff;color:var(--ink);border:2px solid var(--line);box-shadow:0 3px 8px rgba(120,90,60,.1);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px 4px
+}
+.spell-sidebtn .ico{font-size:20px;line-height:1}
+.spell-sidebtn:active{transform:scale(.96)}
+.spell-sidebtn.spell-skip{background:linear-gradient(135deg,#6AA8FF,var(--blue-d));color:#fff;border:none}
+.spell-sidebtn.spell-clear{background:linear-gradient(135deg,#FFD96B,#F5A623);color:#6A4A05;border:none}
+.spell-board{flex:1;min-width:0}
+@media(max-width:340px){.spell-side{width:60px}.spell-sidebtn{font-size:12px}}
 .combo{height:calc(26px*var(--fit,1));font-size:calc(20px*var(--fit,1))}
 #gameBox #sSkip{min-height:calc(54px*var(--fit,1)) !important;
   margin-top:calc(10px*var(--fit,1)) !important;font-size:calc(17px*var(--fit,1))}
