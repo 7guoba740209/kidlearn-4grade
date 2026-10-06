@@ -63,5 +63,20 @@ window.APP_CONFIG = {
     { name: '单词达人', min: 150 },
     { name: '词汇高手', min: 300 },
     { name: '英语小状元', min: 600 }
-  ]
+  ],
+
+  /* ---------- 多账号 / 云端同步 ----------
+   *  enabled: 是否开启登录（默认 true）。设 false 退回单用户旧模式。
+   *  adminInit: 内置管理员账号（账号表被清空也能自愈，会自动补回）。
+   *  cloud: 云端同步。留空 = 纯本机（离线可用，换设备需重注册）。
+   *         想要「手机/平板/电脑进度一致」才填下面这个——
+   *         去 supabase.com 建个免费项目，把 Project URL 和 anon public key 粘进来，
+   *         并在 SQL 编辑器里跑 data/supabase_schema.sql 建两张表即可。
+   *         注意：纯前端没有服务器，密码只做「防误操作」级别，不是银行级安全。 */
+  ACCOUNTS: {
+    enabled: true,
+    adminInit: { name: 'admin', pwd: '123456', nick: '管理员' },
+    cloud: null
+    // cloud: { supabase: { url: 'https://xxxx.supabase.co', key: 'eyJhbG...anon...' } }
+  }
 };
