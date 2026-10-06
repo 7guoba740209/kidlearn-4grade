@@ -435,7 +435,6 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
 .match-grid{display:grid;gap:10px}
 .match-grid.cols-4{grid-template-columns:repeat(4,1fr)}
 .match-grid.cols-2{grid-template-columns:repeat(2,1fr)}
-@media(max-width:360px){.match-grid.cols-4{grid-template-columns:repeat(3,1fr)}}
 .match-tile{
   min-height:58px;border-radius:16px;background:#fff;box-shadow:0 4px 10px rgba(120,90,60,.14);
   display:flex;align-items:center;justify-content:center;padding:8px;cursor:pointer;
@@ -443,8 +442,22 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
 }
 .match-tile:active{transform:scale(.94)}
 .match-tile .mt-inner{text-align:center;width:100%;display:flex;align-items:center;justify-content:center}
-.match-tile .mt-text{font-size:17px;font-weight:800;line-height:1.25;color:var(--blue);word-break:break-word}
+.match-tile .mt-text{font-size:17px;font-weight:800;line-height:1.25;color:var(--blue);word-break:keep-all;overflow-wrap:anywhere}
 .match-tile .mt-text.zh{font-size:17px;font-weight:700;color:var(--purple)}
+
+/* 手机：消消乐 4 列太挤，改为 2 列大卡片，单词整词换行 */
+@media(max-width:430px){
+  .match-grid.cols-4{grid-template-columns:repeat(2,1fr);gap:10px}
+  .match-tile{min-height:62px;border-radius:16px;padding:9px 12px}
+  .match-tile .mt-text{font-size:17px;line-height:1.2}
+  .match-tile .mt-text.zh{font-size:16px}
+}
+@media(max-width:360px){
+  .match-grid.cols-4{grid-template-columns:repeat(2,1fr);gap:9px}
+  .match-tile{min-height:58px;border-radius:15px;padding:8px 10px}
+  .match-tile .mt-text{font-size:16px}
+  .match-tile .mt-text.zh{font-size:15px}
+}
 .match-tile.selected{border-color:var(--blue);background:#E8F1FF;transform:scale(1.03)}
 .match-tile.wrong{border-color:var(--pink);animation:shake .35s;background:#FFEAEF}
 .match-tile.solved{opacity:0;pointer-events:none;transform:scale(.9)}
@@ -487,7 +500,12 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
 .spell-sidebtn.spell-skip{background:linear-gradient(135deg,#6AA8FF,var(--blue-d));color:#fff;border:none}
 .spell-sidebtn.spell-clear{background:linear-gradient(135deg,#FFD96B,#F5A623);color:#6A4A05;border:none}
 .spell-board{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center}
-@media(max-width:340px){.spell-side{width:62px}.spell-sidebtn{font-size:11px}}
+@media(max-width:360px){
+  .spell-body{flex-direction:column;align-items:stretch;gap:8px}
+  .spell-side{flex:none;width:auto;flex-direction:row}
+  .spell-sidebtn{flex:1;min-height:46px;font-size:11px;padding:4px 2px}
+  .spell-sidebtn .ico{font-size:18px}
+}
 .combo{text-align:center;height:calc(26px*var(--fit,1));font-size:calc(18px*var(--fit,1));margin-top:4px;color:var(--orange);font-weight:800}
 
 /* 游戏页：底部给标签栏留的空隙收紧（配合 JS 的自动收缩） */
