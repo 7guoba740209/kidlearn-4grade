@@ -180,6 +180,14 @@
     url(text, lang) {
       const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
       if (!t) return '';
+      // 在线朗读"有感情"通道：配置了 Edge 代理就用微软神经语音（晓晓/云希），
+      // 这是浏览器自带语音和百度免费接口都给不了的"感情/韵律"。
+      const cp = (window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {};
+      if (lang !== 'en' && cp.EDGE_URL) {
+        const voice = cp.EDGE_VOICE || 'zh-CN-XiaoxiaoNeural';
+        const sep = cp.EDGE_URL.indexOf('?') >= 0 ? '&' : '?';
+        return cp.EDGE_URL + sep + 'voice=' + encodeURIComponent(voice) + '&text=' + encodeURIComponent(t);
+      }
       if (lang === 'en') {
         return 'https://dict.youdao.com/dictvoice?type=2&audio=' + encodeURIComponent(t);
       }
@@ -430,10 +438,26 @@
 
     voice() {
       if (!speechReady()) return null;
-      const vs = VOICES.length ? VOICES : refreshVoices();
-      return vs.find(v => /zh[-_]CN/i.test(v.lang)) ||
-        vs.find(v => /^zh/i.test(v.lang)) ||
-        vs.find(v => /Chinese|Huihui|Yaoyao|Xiaoxiao|Tingting/i.test(v.name)) || null;
+      // 只挑中文语音，再按"质量"排序，优先选最好的那一个。
+      // 注意：Web Speech 暴露的是系统 SAPI 语音，Windows 的 XiaoxiaoNeural 等
+      // 神经语音通常不在列表里；能命中 Neural/晓晓/云希/Google 最好，命中不到
+      // 也不要紧，至少避开明显差的，并优先 zh-CN 地区。
+      const vs = (VOICES.length ? VOICES : refreshVoices())
+        .filter(v => /zh/i.test(v.lang || '') || /Chinese/i.test(v.name || ''));
+      if (!vs.length) return null;
+      const score = v => {
+        const n = (v.name || '') + ' ' + (v.lang || '');
+        let s = 0;
+        if (/Neural/i.test(n)) s += 100;                 // 神经语音（晓晓/云希/Google 神经）最优
+        if (/Xiaoxiao|Yunxi|晓晓|云希/i.test(n)) s += 60;
+        if (/Google|谷哥|普通话/i.test(n)) s += 40;
+        if (/Microsoft|微软/i.test(n)) s += 30;
+        if (/Huihui|慧慧|Yaoyao|瑶瑶|Tingting|婷婷|Mei|美/i.test(n)) s += 20; // 基础女声，够用
+        if (/zh[-_]CN/i.test(v.lang || '')) s += 10;     // 优先中国大陆口音
+        if (/Male|男/i.test(n)) s -= 5;
+        return s;
+      };
+      return vs.sort((a, b) => score(b) - score(a))[0];
     },
 
     /* 按行切分，保留原始行结构（高亮要跟屏幕上的段落一一对应） */
@@ -479,8 +503,9 @@
       TTS.onStep = opt.onStep || null;
       TTS.onPart = opt.onPart || null;
       TTS.onMode = opt.onMode || null;
-      TTS.rate = opt.rate || cfg.TTS_RATE || .85;
+      TTS.rate = opt.rate || cfg.TTS_RATE || .95;
       TTS.pitch = opt.pitch || cfg.TTS_PITCH || 1.05;
+      TTS.stepGap = opt.stepGap || cfg.STEP_GAP || 280;
 
       const start = () => {
         if (TTS.stopped) return;
@@ -528,7 +553,7 @@
         u.onend = () => {
           TTS.localOk = true;
           clearTimeout(TTS.__wd);
-          TTS.i = k + 1; setTimeout(() => TTS.next(), 60);
+          TTS.i = k + 1; setTimeout(() => TTS.next(), TTS.stepGap || 280);
         };
         u.onerror = () => {
           clearTimeout(TTS.__wd);
@@ -582,7 +607,7 @@
       NetTTS.speak(unit, {
         lang: 'zh',
         onStart: mark,
-        onEnd: () => { if (TTS.i !== k) return; TTS.i = k + 1; setTimeout(() => TTS.next(), 40); },
+        onEnd: () => { if (TTS.i !== k) return; TTS.i = k + 1; setTimeout(() => TTS.next(), TTS.stepGap || 220); },
         onError: () => {
           if (TTS.i !== k) return;
           TTS.netFails = (TTS.netFails || 0) + 1;
