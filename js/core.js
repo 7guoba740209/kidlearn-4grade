@@ -187,8 +187,8 @@
       if (lang !== 'en' && cp.EDGE_URL) {
         const voice = cp.EDGE_VOICE || 'zh-CN-XiaoxiaoNeural';
         // 把语速/音调也带给代理（代理侧再换算成 SSML prosody）
-        const rate = (opt && opt.rate != null) ? opt.rate : (TTS.rate || (cfg.TTS_RATE || .95));
-        const pitch = (opt && opt.pitch != null) ? opt.pitch : (TTS.pitch || (cfg.TTS_PITCH || 1.05));
+        const rate = (opt && opt.rate != null) ? opt.rate : (TTS.rate || (cp.TTS_RATE || .95));
+        const pitch = (opt && opt.pitch != null) ? opt.pitch : (TTS.pitch || (cp.TTS_PITCH || 1.05));
         const sep = cp.EDGE_URL.indexOf('?') >= 0 ? '&' : '?';
         return cp.EDGE_URL + sep + 'voice=' + encodeURIComponent(voice)
           + '&text=' + encodeURIComponent(t)
@@ -387,7 +387,8 @@
 
       const viaNet = () => {
         NetTTS.stop();
-        setTimeout(() => { NetTTS.speak(t, { lang: 'zh', rate: rr, pitch: cfg.TTS_PITCH }); }, 60);
+        const pitch = ((window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {}).TTS_PITCH;
+        setTimeout(() => { NetTTS.speak(t, { lang: 'zh', rate: rr, pitch: pitch }); }, 60);
         return true;
       };
       const viaLocal = () => {
