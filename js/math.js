@@ -403,7 +403,7 @@ window.MathMod = (function () {
   function mountQuiz() {
     const view = document.getElementById('view');
     const qs = _quiz || buildQuiz();
-    let qi = 0, right = 0, started = Date.now(), timer = null, locked = false;
+    let qi = 0, right = 0, started = Date.now(), timer = null, locked = false, advanceTimer = null;
     const elTimer = UI.$('#qTimer', view), elProg = UI.$('#qProg', view),
           elType = UI.$('#qType', view), elText = UI.$('#qText', view),
           elOpts = UI.$('#qOpts', view), elNext = UI.$('#qNext', view);
@@ -434,14 +434,17 @@ window.MathMod = (function () {
         b.onclick = null;
       });
       if (correct) { right++; SFX.right(); } else { SFX.wrong(); }
+      // 选完自动跳下一题：对的短停看绿、错的稍久让孩子看清正确答案标红；末题自动看成绩
       elNext.textContent = (qi >= qs.length - 1) ? '看成绩 🏁' : '下一题 →';
       elNext.style.display = 'flex';
+      clearTimeout(advanceTimer);
+      advanceTimer = setTimeout(goNext, correct ? 650 : 1150);
     }
-    elNext.onclick = () => {
-      SFX.tap();
+    function goNext() {
       if (qi >= qs.length - 1) { finish(); return; }
       qi++; renderQ();
-    };
+    }
+    elNext.onclick = () => { clearTimeout(advanceTimer); SFX.tap(); goNext(); };
 
     function finish() {
       if (timer) clearInterval(timer);
