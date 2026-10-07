@@ -359,12 +359,22 @@ window.MathMod = (function () {
     qs.forEach((q, i) => { q.no = i + 1; q.opts = makeOptions(q.a); });
     return qs;
   }
-  function ratingOf(score) {
-    if (score >= 90) return { name: '清北人才', emoji: '🚀', msg: '太厉害了，清华北大的苗子！' };
-    if (score >= 80) return { name: '985之星', emoji: '⭐', msg: '非常棒，离清北就差一点点！' };
-    if (score >= 70) return { name: '进步之星', emoji: '💪', msg: '稳步前进，继续加油！' };
-    if (score >= 60) return { name: '潜力新星', emoji: '🌱', msg: '有潜力，多练几次就稳了！' };
-    return { name: '小树苗', emoji: '🌿', msg: '小树苗要天天浇水，多练练会更棒！' };
+  // 按"答对几题"给出 10 种不同鼓励（10 题时 right 即档位；其他题量就近映射）
+  function ratingOf(right, total) {
+    const tiers = [
+      { name: '小芽苗', emoji: '🌱', color: '#66bb6a', msg: '哪怕只答对 1 题，也是个闪亮的好开始！下次一定更多！' },
+      { name: '小脚步', emoji: '🐢', color: '#66bb6a', msg: '两题都对啦，已经迈开步子，慢慢来老师陪你！' },
+      { name: '小战士', emoji: '🌈', color: '#29b6f6', msg: '三题答对，勇敢的小战士，错过的记心里，下次就赢！' },
+      { name: '小勇者', emoji: '💡', color: '#29b6f6', msg: '四题过关，别气馁，每个高手都是从这里开始的！' },
+      { name: '小攀登', emoji: '🚀', color: '#ab47bc', msg: '一半都对啦，正好站在中点，再冲一把就过半！' },
+      { name: '小稳健', emoji: '🌟', color: '#ab47bc', msg: '六题及格，稳稳的，再练练你就能飞！' },
+      { name: '潜力星', emoji: '🌟', color: '#ffa726', msg: '七题真棒，潜力新星正在发光发亮！' },
+      { name: '进步星', emoji: '💪', color: '#ffa726', msg: '八题优秀，进步之星就是你，继续加油！' },
+      { name: '985星', emoji: '⭐', color: '#fb8c00', msg: '九题几乎满分，就差一小步，985 之星闪耀！' },
+      { name: '清北苗', emoji: '🚀', color: '#ef5350', msg: '哇，你可以去上清华北大了！满分小学霸！' }
+    ];
+    const idx = Math.max(0, Math.min(tiers.length - 1, total ? Math.round(right / total * 10) - 1 : right - 1));
+    return tiers[idx];
   }
   function dateLabel() {
     const d = new Date(), p = n => String(n).padStart(2, '0');
@@ -449,7 +459,7 @@ window.MathMod = (function () {
     function finish() {
       if (timer) clearInterval(timer);
       const total = qs.length, pct = Math.round(right / total * 100), used = Date.now() - started;
-      const r = ratingOf(pct);
+      const r = ratingOf(right, total);
       // 单日最好：按"分数优先、同分看用时"记录
       const key = 'quiz_best_' + dayKey();
       const prev = DB.get(key, null);
@@ -479,7 +489,7 @@ window.MathMod = (function () {
 
       if (pct >= 60) FX.burst(80);          // 配声音 + 撒花
       SFX.win();
-      Say.zh(r.name + '！你答对了' + right + '题，得分' + pct + '分。' + r.msg, .95);
+      Say.zh('你答对了' + right + '题！' + r.msg, .95);
       const again = UI.$('#qAgain', view);
       if (again) again.onclick = () => { SFX.tap(); location.hash = '#/ma/quiz'; };
     }
