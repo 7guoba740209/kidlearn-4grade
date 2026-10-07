@@ -38,9 +38,21 @@ window.APP_CONFIG = {
   CN_PLAY: {
     AUTOPLAY: true,        // 弹出播放器后自动开始播放
     AUTO_TTS: true,        // 没录视频的课，自动用本机朗读兜底（免登录、离线可用）
-    TTS_RATE: 0.85,        // 本机朗读语速（0.5 慢 ~ 1 快）
+    TTS_RATE: 0.95,        // 本机朗读语速（0.5 慢 ~ 1 快）；0.85 偏慢会显得拖沓"逐字"
     TTS_PITCH: 1.05,       // 本机朗读音调
-    SHOW_DOUYIN_BTN: true  // 播放器底部是否显示「在抖音里看」按钮
+    STEP_GAP: 280,         // 句与句之间的停顿(毫秒)，给朗读一点呼吸感，避免一字一顿
+    SHOW_DOUYIN_BTN: true, // 播放器底部是否显示「在抖音里看」按钮
+
+    /* —— 在线朗读"有感情"通道（可选，默认关闭）——
+     * 浏览器自带语音和百度免费接口都没有"感情/韵律"，读起来像念字。
+     * 真正有感情要用微软 Edge 神经语音（晓晓/云希）。它因浏览器限制无法直连，
+     * 需经一个免费代理（Cloudflare Worker，见 _edge_worker.js 与 _edge_guide.html）。
+     * 部署好 Worker 后，把它的地址填到下面 EDGE_URL，在线朗读就会自动改用它：
+     *   EDGE_URL:  'https://你的worker子域.workers.dev/api/tts',
+     *   EDGE_VOICE:'zh-CN-XiaoxiaoNeural',   // 晓晓(女,活泼) / zh-CN-YunxiNeural(云希,男,稳重)
+     * 留空则继续用百度兜底（机械但能用）。两个字段要一起填。 */
+    EDGE_URL: '',
+    EDGE_VOICE: 'zh-CN-XiaoxiaoNeural'
   },
 
   /* ---------- 数学 ----------
