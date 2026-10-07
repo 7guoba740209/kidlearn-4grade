@@ -481,17 +481,21 @@ window.MathMod = (function () {
           </div>
           <div class="quiz-best" style="margin-top:14px">${best ? '今日最好：<b>' + best.score + ' 分</b>（' + fmtTime(best.time) + '）' + (isNewBest ? ' · 新纪录🎉' : '') : ''}</div>
           ${award ? `<div class="sc" style="margin-top:8px;color:var(--green)">+ ⭐ ${award}（刷新今日最好）</div>` : ''}
-          <div class="grid2" style="margin-top:16px">
+          <button class="btn bg-o" id="qHear" style="width:100%;margin-top:14px;font-size:18px;font-weight:800">🔊 再听一次鼓励</button>
+          <div class="grid2" style="margin-top:12px">
             <button class="btn ghost" id="qAgain">🔄 再做一次</button>
             <a class="btn bg-b" href="#/ma">返回数学</a>
           </div>
         </div>`;
 
-      if (pct >= 60) FX.burst(80);          // 配声音 + 撒花
-      SFX.win();
-      Say.zh('你答对了' + right + '题！' + r.msg, .95);
+      if (pct >= 60) FX.burst(80);          // 高分撒花
+      SFX.win();                            // 赞叹声
+      const speakMsg = '你答对了' + right + '题！' + r.msg;
+      setTimeout(() => Say.zh(speakMsg, .95), 900);   // 赞叹声后，说出激励语
       const again = UI.$('#qAgain', view);
       if (again) again.onclick = () => { SFX.tap(); location.hash = '#/ma/quiz'; };
+      const hear = UI.$('#qHear', view);
+      if (hear) hear.onclick = () => { SFX.tap(); Say.zh(speakMsg, .95); };
     }
 
     renderQ();
