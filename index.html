@@ -46,9 +46,11 @@
 <script src="data/essay-data.js"></script>
 <script src="data/english-data.js"></script>
 <script src="data/math-data.js"></script>
-<!-- 纯前端 OCR 引擎（数学拍照识别知识点用，无需后端/密钥）。
-     仅首页与数学页会用到，放 body 末尾不影响首屏；加载完 window.Tesseract 才存在。 -->
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js"></script>
+<!-- 纯前端 OCR 引擎（数学拍照识别知识点用，无需后端/密钥，全部资源本地自托管 → 断网也能用）。
+     仅首页与数学页会用到，放 body 末尾不影响首屏；加载完 window.Tesseract 才存在。
+     ★ 资源都在 vendor/tesseract/（tesseract.min.js / worker.min.js / tesseract-core-*.wasm(.js) / lang/chi_sim.traineddata.gz），
+        math.js 的 createWorker 用 workerPath/corePath/langPath 指到本地，故完全离线。 -->
+<script src="vendor/tesseract/tesseract.min.js"></script>
 <!-- ===== 程序逻辑 ===== -->
 <script src="js/core.js"></script>
 <script src="js/accounts.js"></script>
