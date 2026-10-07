@@ -169,6 +169,8 @@ window.MathMod = (function () {
         <span>从相册选图<small>也可以选电脑里的截图</small></span></button>
       <button class="big-btn bg-o" data-go="#/ma/album"><span class="ico">🗂️</span>
         <span>我的错题本<small>共 ${photos.length} 张 · 按时间排列</small></span></button>
+      <button class="big-btn bg-p" data-go="#/ma/quiz"><span class="ico">📝</span>
+        <span>每日口算打卡<small>计时 10 题 · 自动评级 · 配声音</small></span></button>
 
       <div id="workBox"></div>
 
@@ -322,14 +324,178 @@ window.MathMod = (function () {
       </div>`;
   }
 
+  /* ---------------- 每日口算打卡（计时 · 10题选择题 · 评级 · 打卡） ---------------- */
+  function rnd(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
+  function swapDigits(n) {
+    if (n < 10) return n;
+    const u = n % 10, t = Math.floor(n / 10) % 10, rest = Math.floor(n / 100);
+    return rest * 100 + u * 10 + t;
+  }
+  // 加法：三位数 + 两位数；减法：三位数 − 两位数（必为正）；乘法：两位 × 一位；除法：两位 ÷ 一位（整除）
+  function makeAdd() { const a = rnd(100, 999), b = rnd(10, 99); return { q: a + ' + ' + b, a: a + b, type: '加' }; }
+  function makeSub() { const a = rnd(100, 999), b = rnd(10, 99); return { q: a + ' − ' + b, a: a - b, type: '减' }; }
+  function makeMul() { const a = rnd(10, 99), b = rnd(2, 9); return { q: a + ' × ' + b, a: a * b, type: '乘' }; }
+  function makeDiv() {
+    const d = rnd(2, 9); let q = rnd(2, 9); let prod = d * q;
+    while (prod < 10) { q = rnd(3, 9); prod = d * q; }   // 保证被除数是两位数
+    return { q: prod + ' ÷ ' + d, a: q, type: '除' };
+  }
+  // 4 个选项：1 正确 + 3 个贴近的常见错误答案（±1/±10/交换个位十位等）
+  function makeOptions(ans) {
+    const cands = [ans + 1, ans - 1, ans + 10, ans - 10, ans + 2, ans - 2, swapDigits(ans), ans * 2, ans + 5, ans - 5, ans + 20];
+    const pool = [];
+    cands.forEach(c => { if (c >= 0 && c !== ans && pool.indexOf(c) < 0) pool.push(c); });
+    while (pool.length < 3) { const x = ans + rnd(1, 30); if (x !== ans && pool.indexOf(x) < 0) pool.push(x); }
+    for (let i = pool.length - 1; i > 0; i--) { const j = rnd(0, i); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+    const opts = pool.slice(0, 3); opts.push(ans);
+    for (let i = opts.length - 1; i > 0; i--) { const j = rnd(0, i); const t = opts[i]; opts[i] = opts[j]; opts[j] = t; }
+    return opts;
+  }
+  function buildQuiz() {
+    const makers = [makeAdd, makeSub, makeMul, makeDiv];
+    const qs = makers.map(m => m());                       // 4 种题型各保证出现
+    for (let i = qs.length; i < 10; i++) qs.push(makers[rnd(0, 3)]());   // 再补随机到 10 题
+    for (let i = qs.length - 1; i > 0; i--) { const j = rnd(0, i); const t = qs[i]; qs[i] = qs[j]; qs[j] = t; }  // 打乱
+    qs.forEach((q, i) => { q.no = i + 1; q.opts = makeOptions(q.a); });
+    return qs;
+  }
+  function ratingOf(score) {
+    if (score >= 90) return { name: '清北人才', emoji: '🚀', msg: '太厉害了，清华北大的苗子！' };
+    if (score >= 80) return { name: '985之星', emoji: '⭐', msg: '非常棒，离清北就差一点点！' };
+    if (score >= 70) return { name: '进步之星', emoji: '💪', msg: '稳步前进，继续加油！' };
+    if (score >= 60) return { name: '潜力新星', emoji: '🌱', msg: '有潜力，多练几次就稳了！' };
+    return { name: '小树苗', emoji: '🌿', msg: '小树苗要天天浇水，多练练会更棒！' };
+  }
+  function dateLabel() {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    const wd = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()];
+    return d.getFullYear() + '年' + p(d.getMonth() + 1) + '月' + p(d.getDate()) + '日 ' + wd;
+  }
+  function dayKey() {
+    const d = new Date(), p = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  function fmtTime(ms) {
+    const s = Math.floor(ms / 1000), m = Math.floor(s / 60);
+    return String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  }
+
+  let _quiz = null;   // 当前这套题（render 时生成，mount 时消费）
+  function quizPage() {
+    _quiz = buildQuiz();
+    const best = DB.get('quiz_best_' + dayKey(), null);
+    return `
+      <div class="page-head"><span class="back" data-go="#/ma">‹</span><h2>每日口算打卡</h2></div>
+      <p class="sub-title">📅 ${dateLabel()} · 10 道选择题，计时开始！</p>
+      <div class="quiz-top">
+        <span class="quiz-pill">⏱️ <b id="qTimer">00:00</b></span>
+        <span class="quiz-pill">第 <b id="qProg">1</b> / 10 题</span>
+      </div>
+      <div class="card quiz-card">
+        <div class="quiz-type" id="qType">加法</div>
+        <div class="quiz-q" id="qText">—</div>
+        <div class="opt-grid" id="qOpts"></div>
+        <button class="btn bg-g quiz-next" id="qNext" style="display:none;margin-top:16px">下一题 →</button>
+      </div>
+      <div id="qBest" class="quiz-best">${best ? '今日最好：' + best.score + ' 分（' + fmtTime(best.time) + '）' : '今天还没打卡，加油拿下第一个成绩！'}</div>`;
+  }
+
+  function mountQuiz() {
+    const view = document.getElementById('view');
+    const qs = _quiz || buildQuiz();
+    let qi = 0, right = 0, started = Date.now(), timer = null, locked = false;
+    const elTimer = UI.$('#qTimer', view), elProg = UI.$('#qProg', view),
+          elType = UI.$('#qType', view), elText = UI.$('#qText', view),
+          elOpts = UI.$('#qOpts', view), elNext = UI.$('#qNext', view);
+
+    timer = setInterval(() => { if (elTimer) elTimer.textContent = fmtTime(Date.now() - started); }, 250);
+
+    function renderQ() {
+      locked = false;
+      const q = qs[qi];
+      elType.textContent = { '加': '➕ 加法', '减': '➖ 减法', '乘': '✖️ 乘法', '除': '➗ 除法' }[q.type] || q.type;
+      elText.textContent = q.q + ' = ?';
+      elProg.textContent = (qi + 1);
+      elOpts.innerHTML = q.opts.map((o, i) => `<button class="opt" data-i="${i}" data-v="${o}">${o}</button>`).join('');
+      elNext.style.display = 'none';
+      UI.$$('.opt', elOpts).forEach(btn => btn.onclick = () => choose(btn, q));
+    }
+    function choose(btn, q) {
+      if (locked) return;
+      locked = true;
+      SFX.tap();
+      const val = Number(btn.getAttribute('data-v'));
+      const correct = (val === q.a);
+      UI.$$('.opt', elOpts).forEach(b => {
+        const v = Number(b.getAttribute('data-v'));
+        b.classList.add('done');
+        if (v === q.a) b.classList.add('ok');
+        else if (b === btn) b.classList.add('no');
+        b.onclick = null;
+      });
+      if (correct) { right++; SFX.right(); } else { SFX.wrong(); }
+      elNext.textContent = (qi >= qs.length - 1) ? '看成绩 🏁' : '下一题 →';
+      elNext.style.display = 'flex';
+    }
+    elNext.onclick = () => {
+      SFX.tap();
+      if (qi >= qs.length - 1) { finish(); return; }
+      qi++; renderQ();
+    };
+
+    function finish() {
+      if (timer) clearInterval(timer);
+      const total = qs.length, pct = Math.round(right / total * 100), used = Date.now() - started;
+      const r = ratingOf(pct);
+      // 单日最好：按"分数优先、同分看用时"记录
+      const key = 'quiz_best_' + dayKey();
+      const prev = DB.get(key, null);
+      const isNewBest = !prev || pct > prev.score || (pct === prev.score && used < prev.time);
+      let award = 0;
+      if (isNewBest) { DB.set(key, { score: pct, time: used, ts: UI.now() }); award = Math.max(1, Math.round(pct / 10)); addPoints(award); }
+      const best = DB.get(key, null);
+
+      view.innerHTML = `
+        <div class="page-head"><span class="back" data-go="#/ma">‹</span><h2>打卡成绩</h2></div>
+        <div class="card result">
+          <div class="em">${r.emoji}</div>
+          <h2>${right} / ${total} 题正确</h2>
+          <div class="sc">得分 ${pct} 分</div>
+          <div class="sc" style="font-size:17px;color:var(--ink2)">⏱️ 用时 ${fmtTime(used)} · 📅 ${dateLabel()}</div>
+          <div class="rating" style="margin-top:14px;background:${r.color};color:#fff">
+            <div style="font-size:22px;font-weight:900">${r.name}</div>
+            <div style="font-size:16px;margin-top:4px;opacity:.95">${r.msg}</div>
+          </div>
+          <div class="quiz-best" style="margin-top:14px">${best ? '今日最好：<b>' + best.score + ' 分</b>（' + fmtTime(best.time) + '）' + (isNewBest ? ' · 新纪录🎉' : '') : ''}</div>
+          ${award ? `<div class="sc" style="margin-top:8px;color:var(--green)">+ ⭐ ${award}（刷新今日最好）</div>` : ''}
+          <div class="grid2" style="margin-top:16px">
+            <button class="btn ghost" id="qAgain">🔄 再做一次</button>
+            <a class="btn bg-b" href="#/ma">返回数学</a>
+          </div>
+        </div>`;
+
+      if (pct >= 60) FX.burst(80);          // 配声音 + 撒花
+      SFX.win();
+      Say.zh(r.name + '！你答对了' + right + '题，得分' + pct + '分。' + r.msg, .95);
+      const again = UI.$('#qAgain', view);
+      if (again) again.onclick = () => { SFX.tap(); location.hash = '#/ma/quiz'; };
+    }
+
+    renderQ();
+  }
+
   return {
     render(p) {
       if (p[1] === 'album') return album();
       if (p[1] === 's') return practice(p);
+      if (p[1] === 'quiz') return quizPage();
       return home();
     },
     mount(p) {
       const view = document.getElementById('view');
+
+      /* 每日口算打卡 */
+      if (p[1] === 'quiz') { mountQuiz(); return; }
 
       /* 首页：拍照 / 相册 */
       const cam = document.getElementById('bCam');
