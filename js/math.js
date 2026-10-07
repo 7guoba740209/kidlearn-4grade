@@ -7,9 +7,11 @@ window.MathMod = (function () {
    * Promise 换成自己的接口请求，返回 { text:'识别出的题目', kp:'知识点id' } 即可。
    * 注意：请用第二个参数 dataUrl（**已经裁剪好的那一题**），不要用原始整张照片。
    */
-  /* ---------------- 真 OCR（Tesseract.js，纯前端） ----------------
-   * 由 index.html 引入 CDN 的 tesseract.min.js，window.Tesseract 才存在。
-   * 首次会下载中文语言包（约 10MB，缓存在 IndexedDB），之后复用同一 worker。
+  /* ---------------- 真 OCR（Tesseract.js，纯前端 + 本地自托管） ----------------
+   * 由 index.html 引入本地 vendor/tesseract/tesseract.min.js，window.Tesseract 才存在。
+   * 所有资源（worker / wasm 核心 / 中文语言包）都在 vendor/tesseract/ 下，createWorker 用
+   * workerPath/corePath/langPath 指到本地 —— 不依赖任何 CDN，断网也能识别。
+   * 首次会从本地加载语言包（约 20MB，缓存在 IndexedDB），之后复用同一 worker。
    * onProgress(m) 把识别进度显示到页面。 */
   let _ocrWorker = null;
   function _ocrTimeout(ms, tag) {
@@ -65,7 +67,13 @@ window.MathMod = (function () {
     try {
       if (!_ocrWorker) {
         _ocrWorker = await Promise.race([
-          Tesseract.createWorker('chi_sim', 1, { logger: m => { if (onProgress) onProgress(m); } }),
+          Tesseract.createWorker('chi_sim', 1, {
+            // 全部指向本地 vendor/tesseract/，断网可用；相对路径会由 tesseract 按文档根归一化
+            workerPath: 'vendor/tesseract/worker.min.js',
+            corePath: 'vendor/tesseract/',
+            langPath: 'vendor/tesseract/lang/',
+            logger: m => { if (onProgress) onProgress(m); }
+          }),
           _ocrTimeout(45000, 'init')
         ]);
       }
