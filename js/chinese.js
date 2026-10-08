@@ -659,10 +659,13 @@ window.Chinese = (function () {
         TTS.play(null, {
           units: lines.slice(f),
           onMode: (m) => {
-            // 'net' = 这台设备没有本机语音，已自动改用在线朗读；提示一下免得以为坏了
-            if (m === 'piper') {
-              if (hint && LIVE && LIVE.gen === myGen) hint.textContent = '正在用有感情的朗读，马上开始…';
-            } else if (m === 'net' && hint && LIVE && LIVE.gen === myGen) {
+            if (!hint || !LIVE || LIVE.gen !== myGen) return;
+            // 在线神经语音（Edge-TTS · 微软晓晓）：有感情、断句自然，是默认主引擎
+            if (m === 'edge') {
+              hint.textContent = '正在用有感情的朗读（微软晓晓），马上开始…';
+            } else if (m === 'piper') {
+              hint.textContent = '正在用有感情的朗读，马上开始…';
+            } else if (m === 'net') {
               hint.textContent = '正在用在线朗读，马上开始…';
             }
           },
