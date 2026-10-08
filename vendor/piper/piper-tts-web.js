@@ -442,9 +442,11 @@ predictChunk_fn = async function(text) {
     ]);
   });
   const speakerId = 0;
-  const noiseScale = __privateGet(this, _modelConfig).inference.noise_scale;
-  const lengthScale = __privateGet(this, _modelConfig).inference.length_scale;
-  const noiseW = __privateGet(this, _modelConfig).inference.noise_w;
+  // 允许外部微调韵律（更有感情/更清晰）。window.KL_PIPER_TUNE 缺省时按模型原生值。
+  const tune = window.KL_PIPER_TUNE || {};
+  const noiseScale = tune.noiseScale != null ? tune.noiseScale : __privateGet(this, _modelConfig).inference.noise_scale;
+  const lengthScale = tune.lengthScale != null ? tune.lengthScale : __privateGet(this, _modelConfig).inference.length_scale;
+  const noiseW = tune.noiseW != null ? tune.noiseW : __privateGet(this, _modelConfig).inference.noise_w;
   const session = __privateGet(this, _ortSession);
   const feeds = {
     input: new (__privateGet(this, _ort)).Tensor("int64", phonemeIds, [1, phonemeIds.length]),
