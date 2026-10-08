@@ -308,13 +308,17 @@
     return HAS_GOOD_LOCAL;
   }
   function engine() {
-    if (NET_ONLY || FORCE_NET) return 'net';
-    // 本机若装有优质中文神经语音（晓晓/云希/Neural 等），优先用它：比 Piper 更有感情、且流式零延迟不卡顿
-    if (preferLocal() && speechReady()) return 'local';
-    // 本地神经语音（Piper · VITS 华研女声）：离线可用、质量好，作为没有好本机语音时的兜底
+    if (NET_ONLY) return 'net';   // ?forceNet=1：调试用，强制走百度兜底对比
+    // 在线神经语音（Edge-TTS · 微软晓晓）：最有感情、断句自然、零大体积下载 → 默认优先
+    if (window.EdgeTTS && window.EdgeTTS.usable) return 'edge';
+    // 本机若装有优质中文神经语音，可用；否则走下面更稳的通道
+    if (speechReady()) {
+      if (HAS_GOOD_LOCAL || !FORCE_NET) return 'local';
+    }
+    // 本地神经语音（Piper · VITS 华研女声）：离线兜底（仅当在线通道不可用时）
     if (window.PiperTTS && window.PiperTTS.ready) return 'piper';
     if (speechReady()) return 'local';
-    if (SPEECH_ABSENT) return 'net';
+    if (SPEECH_ABSENT) return 'net';   // 真·离线且无本机语音：最后才用百度兜底
     return 'unknown';
   }
   /* 统一入口：确定用哪个引擎后执行 run(engine) */
@@ -348,8 +352,8 @@
   const Say = {
     /* 注意：这是 getter，每次都实时判断，不要改成静态值。
        语义是"本机语音可用"；本机不可用时 Say 会自动走在线朗读，仍然能发声。 */
-    get ok() { return speechReady() || engine() === 'net' || (window.PiperTTS && window.PiperTTS.ready); },
-    get mode() { const e = engine(); return e === 'piper' ? 'piper' : (e === 'local' ? 'local' : 'net'); },
+    get ok() { return speechReady() || engine() === 'net' || engine() === 'edge' || (window.PiperTTS && window.PiperTTS.ready); },
+    get mode() { const e = engine(); return e === 'edge' ? 'edge' : (e === 'piper' ? 'piper' : (e === 'local' ? 'local' : 'net')); },
 
     /* 英文朗读：词组（moon cake / sports day / New Year）按空格拆词逐个排队朗读 */
     en(word, rate) {
@@ -411,14 +415,18 @@
       const t = String(text == null ? '' : text).trim();
       if (!t) return false;
       const rr = rate || .9;
+      const pitch = ((window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {}).TTS_PITCH || 1.05;
 
+      const viaEdge = () => {
+        try { EdgeTTS.speak(t, { lang: 'zh', rate: rr, pitch: pitch, onError: viaNet }); } catch (e) { viaNet(); }
+        return true;
+      };
       const viaPiper = () => {
         try { PiperTTS.speak(t, { rate: rr, onError: viaNet }); } catch (e) { viaNet(); }
         return true;
       };
       const viaNet = () => {
         NetTTS.stop();
-        const pitch = ((window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {}).TTS_PITCH;
         setTimeout(() => { NetTTS.speak(t, { lang: 'zh', rate: rr, pitch: pitch }); }, 60);
         return true;
       };
@@ -437,15 +445,13 @@
         } catch (e) { return viaNet(); }
       };
 
-      // 首次中文朗读时顺手在后台预热 Piper（不阻塞），加载完后续自动切换到有感情朗读
-      if (window.PiperTTS && !window.PiperTTS.ready && !window.PiperTTS.failed) {
-        window.PiperTTS.ensure().catch(() => { });
-      }
       const e = engine();
+      if (e === 'edge') return viaEdge();
       if (e === 'piper') return viaPiper();
       if (e === 'unknown') {
         withEngine(eng => {
-          if (eng === 'piper') viaPiper();
+          if (eng === 'edge') viaEdge();
+          else if (eng === 'piper') viaPiper();
           else if (eng === 'local') viaLocal();
           else viaNet();
         }, 800);
@@ -502,18 +508,21 @@
         .split('\n').map(s => s.trim()).filter(s => s.length);
     },
 
-    /* 句切分：一句话一个单位，最长的也不再切（超长会导致高亮停留过久，故上限120字） */
+    /* 句切分：以句末标点（。！？；及英文 !?）为界；省略号…不再切断（避免把一句话拆散）。
+       引号/书名号/逗号/顿号一律不切，保证交给云端 TTS 的是完整语义片段，断句自然。 */
     splitSentences(t) {
       const out = [];
+      const SEP = '。！？!?；;';
       TTS.splitLines(t).forEach(line => {
-        if (line.length <= 26) { out.push(line); return; }
+        if (line.length <= 30) { if (line.trim()) out.push(line.trim()); return; }
         let buf = '';
+        const flush = () => { const s = buf.trim(); if (s) out.push(s); buf = ''; };
         for (const ch of line) {
           buf += ch;
-          if ('。！？；!?…'.indexOf(ch) >= 0) { out.push(buf); buf = ''; }
-          else if (buf.length >= 120) { out.push(buf); buf = ''; }
+          if (SEP.indexOf(ch) >= 0) flush();
+          else if (buf.length >= 140) flush();
         }
-        if (buf.trim()) out.push(buf.trim());
+        flush();
       });
       return out;
     },
@@ -543,24 +552,12 @@
       TTS.pitch = opt.pitch || cfg.TTS_PITCH || 1.05;
       TTS.stepGap = opt.stepGap || cfg.STEP_GAP || 280;
 
-      // 首次中文朗读：后台预热 Piper（不阻塞），加载完 engine() 会变 'piper'，自动切换到有感情朗读
-      if (window.PiperTTS && !window.PiperTTS.ready && !window.PiperTTS.failed) {
-        window.PiperTTS.ensure().catch(() => { });
-      }
-      // 预合成前几句：无论最终走 Piper 还是本机，先把开头几段算好，首句也能尽快顺下来
-      if (window.PiperTTS) {
-        for (let j = 0; j < Math.min(3, units.length); j++) {
-          try { window.PiperTTS.preload(units[j]); } catch (e) { }
-        }
-      }
-
       const start = () => {
         if (TTS.stopped) return;
-        TTS.engine = engine();   // 'piper' | 'local' | 'net'
+        TTS.engine = engine();   // 'edge' | 'local' | 'piper' | 'net'
         if (TTS.onMode) TTS.onMode(TTS.engine);
-        if (TTS.engine === 'net') {
-          // 在线朗读：<audio>.play() 必须留在用户手势的调用栈里（iOS 硬性要求），
-          // 所以这里**不能**套 setTimeout，直接起播。
+        // 在线朗读（edge / net）：<audio>.play() 必须留在用户手势的调用栈里（iOS 硬性要求），直接起播
+        if (TTS.engine === 'net' || TTS.engine === 'edge') {
           TTS.next();
           return;
         }
@@ -584,6 +581,7 @@
         if (TTS.onEnd) TTS.onEnd();
         return;
       }
+      if (TTS.engine === 'edge') return TTS.nextEdge();
       if (TTS.engine === 'piper') return TTS.nextPiper();
       if (TTS.engine === 'net') return TTS.nextNet();
       return TTS.nextLocal();
@@ -648,6 +646,35 @@
       TTS.i = k; TTS.at = -1;
       if (TTS.onMode) TTS.onMode('net');
       setTimeout(() => { if (!TTS.stopped) TTS.next(); }, 60);
+    },
+
+    /* —— 在线神经语音（Edge-TTS · 微软晓晓） —— 中文默认主引擎：有感情、断句自然、零大体积下载
+     *  播放用共享 <audio>；播当前句的同时后台并行预合成后面两句，读完后立即续上，消除"断断续续"。 */
+    nextEdge() {
+      const k = TTS.i, unit = TTS.q[k];
+      if (TTS.q[k + 1]) EdgeTTS.prefetch(TTS.q[k + 1], { lang: 'zh', rate: TTS.rate, pitch: TTS.pitch });
+      if (TTS.q[k + 2]) EdgeTTS.prefetch(TTS.q[k + 2], { lang: 'zh', rate: TTS.rate, pitch: TTS.pitch });
+      let marked = false;
+      const mark = () => {
+        if (marked || TTS.stopped || TTS.i !== k) return;
+        marked = true; TTS.at = k;
+        if (TTS.onStep) TTS.onStep(k, TTS.q.length, unit);
+      };
+      EdgeTTS.speak(unit, {
+        lang: 'zh', rate: TTS.rate, pitch: TTS.pitch,
+        onStart: mark,
+        onEnd: () => { if (TTS.i !== k) return; TTS.i = k + 1; setTimeout(() => TTS.next(), 30); },
+        onError: () => {
+          if (TTS.i !== k) return;
+          TTS.edgeFails = (TTS.edgeFails || 0) + 1;
+          if (TTS.edgeFails >= 2) { if (window.EdgeTTS) window.EdgeTTS.usable = false; }  // 连续失败→本会话关掉 Edge，转降级
+          // 本句降级补读：本机 → Piper → 百度兜底
+          if (speechReady() && !FORCE_NET) { TTS.engine = 'local'; return TTS.nextLocal(); }
+          if (window.PiperTTS && window.PiperTTS.ready) { TTS.engine = 'piper'; return TTS.nextPiper(); }
+          TTS.engine = 'net'; return TTS.nextNet();
+        }
+      });
+      setTimeout(mark, 900);   // 音频起播偏慢时，高亮别落后太多
     },
 
     /* —— 本地神经语音（Piper · VITS · 华研女声） —— 中文专属，质量好、离线可用 */
@@ -717,24 +744,27 @@
     pause() {
       if (TTS.stopped) return;
       TTS.paused = true;
-      if (TTS.engine === 'piper') { if (window.PiperTTS) PiperTTS.pause(); }
+      if (TTS.engine === 'edge') { if (window.EdgeTTS) EdgeTTS.pause(); }
+      else if (TTS.engine === 'piper') { if (window.PiperTTS) PiperTTS.pause(); }
       else if (TTS.engine === 'net') NetTTS.pause();
       else { try { speechSynthesis.pause(); } catch (e) { } }
     },
     resume() {
       if (TTS.stopped) return;
       TTS.paused = false;
-      if (TTS.engine === 'piper') { if (window.PiperTTS) PiperTTS.resume(); }
+      if (TTS.engine === 'edge') { if (window.EdgeTTS) EdgeTTS.resume(); }
+      else if (TTS.engine === 'piper') { if (window.PiperTTS) PiperTTS.resume(); }
       else if (TTS.engine === 'net') NetTTS.resume();
       else { try { speechSynthesis.resume(); } catch (e) { } }
     },
     toggle() { TTS.paused ? TTS.resume() : TTS.pause(); return TTS.paused; },
     stop() {
       TTS.stopped = true; TTS.paused = false; TTS.q = []; TTS.i = 0; TTS.at = -1;
-      TTS.localOk = undefined; TTS.netFails = 0; TTS.__netWarned = false;
+      TTS.localOk = undefined; TTS.netFails = 0; TTS.__netWarned = false; TTS.edgeFails = 0;
       clearTimeout(TTS.__wd);
       try { speechSynthesis.cancel(); } catch (e) { }
       NetTTS.stop();
+      if (window.EdgeTTS) EdgeTTS.stop();
       if (window.PiperTTS) PiperTTS.stop();
     },
     get busy() { return !TTS.stopped; }
