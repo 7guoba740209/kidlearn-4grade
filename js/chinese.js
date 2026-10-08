@@ -660,7 +660,9 @@ window.Chinese = (function () {
           units: lines.slice(f),
           onMode: (m) => {
             // 'net' = 这台设备没有本机语音，已自动改用在线朗读；提示一下免得以为坏了
-            if (m === 'net' && hint && LIVE && LIVE.gen === myGen) {
+            if (m === 'piper') {
+              if (hint && LIVE && LIVE.gen === myGen) hint.textContent = '正在用有感情的朗读，马上开始…';
+            } else if (m === 'net' && hint && LIVE && LIVE.gen === myGen) {
               hint.textContent = '正在用在线朗读，马上开始…';
             }
           },
