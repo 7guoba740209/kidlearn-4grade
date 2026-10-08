@@ -98,6 +98,8 @@
         const p = a.play();
         if (p && p.catch) p.catch(() => { });
       } catch (e) { }
+      // 4) 把 Piper 本地神经语音的共享 <audio> 也解锁（中文朗读走它播放）
+      try { if (window.PiperTTS && window.PiperTTS.unlock) window.PiperTTS.unlock(); } catch (e) { }
       AUDIO_UNLOCKED = true;
     } catch (e) { }
   }
@@ -287,6 +289,8 @@
   try { NET_ONLY = /[?&]forceNet=1/.test(location.search); } catch (e) { }
   function engine() {
     if (NET_ONLY || FORCE_NET) return 'net';
+    // 本地神经语音（Piper · VITS 华研女声）：质量最好、离线可用，中文专属，就绪后最高优先级
+    if (window.PiperTTS && window.PiperTTS.ready) return 'piper';
     if (speechReady()) return 'local';
     if (SPEECH_ABSENT) return 'net';
     return 'unknown';
@@ -322,8 +326,8 @@
   const Say = {
     /* 注意：这是 getter，每次都实时判断，不要改成静态值。
        语义是"本机语音可用"；本机不可用时 Say 会自动走在线朗读，仍然能发声。 */
-    get ok() { return speechReady() || engine() === 'net'; },
-    get mode() { return engine() === 'local' ? 'local' : 'net'; },
+    get ok() { return speechReady() || engine() === 'net' || (window.PiperTTS && window.PiperTTS.ready); },
+    get mode() { const e = engine(); return e === 'piper' ? 'piper' : (e === 'local' ? 'local' : 'net'); },
 
     /* 英文朗读：词组（moon cake / sports day / New Year）按空格拆词逐个排队朗读 */
     en(word, rate) {
@@ -371,9 +375,10 @@
         } catch (e) { return viaNet(); }
       };
 
-      const e = engine();
+      let e = engine();
+      if (e === 'piper') e = speechReady() ? 'local' : 'net';  // Piper 只支持中文，英文仍走原通道
       if (e === 'unknown') {           // 刚打开页面，还在探测：定下来后自动播
-        withEngine(eng => { eng === 'local' ? viaLocal() : viaNet(); }, 800);
+        withEngine(eng => { if (eng === 'piper') eng = speechReady() ? 'local' : 'net'; eng === 'local' ? viaLocal() : viaNet(); }, 800);
         return true;
       }
       return e === 'local' ? viaLocal() : viaNet();
@@ -385,6 +390,10 @@
       if (!t) return false;
       const rr = rate || .9;
 
+      const viaPiper = () => {
+        try { PiperTTS.speak(t, { rate: rr, onError: viaNet }); } catch (e) { viaNet(); }
+        return true;
+      };
       const viaNet = () => {
         NetTTS.stop();
         const pitch = ((window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {}).TTS_PITCH;
@@ -406,9 +415,18 @@
         } catch (e) { return viaNet(); }
       };
 
+      // 首次中文朗读时顺手在后台预热 Piper（不阻塞），加载完后续自动切换到有感情朗读
+      if (window.PiperTTS && !window.PiperTTS.ready && !window.PiperTTS.failed) {
+        window.PiperTTS.ensure().catch(() => { });
+      }
       const e = engine();
+      if (e === 'piper') return viaPiper();
       if (e === 'unknown') {
-        withEngine(eng => { eng === 'local' ? viaLocal() : viaNet(); }, 800);
+        withEngine(eng => {
+          if (eng === 'piper') viaPiper();
+          else if (eng === 'local') viaLocal();
+          else viaNet();
+        }, 800);
         return true;
       }
       return e === 'local' ? viaLocal() : viaNet();
@@ -515,9 +533,14 @@
       TTS.pitch = opt.pitch || cfg.TTS_PITCH || 1.05;
       TTS.stepGap = opt.stepGap || cfg.STEP_GAP || 280;
 
+      // 首次中文朗读：后台预热 Piper（不阻塞），加载完 engine() 会变 'piper'，自动切换到有感情朗读
+      if (window.PiperTTS && !window.PiperTTS.ready && !window.PiperTTS.failed) {
+        window.PiperTTS.ensure().catch(() => { });
+      }
+
       const start = () => {
         if (TTS.stopped) return;
-        TTS.engine = engine() === 'local' ? 'local' : 'net';
+        TTS.engine = engine();   // 'piper' | 'local' | 'net'
         if (TTS.onMode) TTS.onMode(TTS.engine);
         if (TTS.engine === 'net') {
           // 在线朗读：<audio>.play() 必须留在用户手势的调用栈里（iOS 硬性要求），
@@ -545,6 +568,7 @@
         if (TTS.onEnd) TTS.onEnd();
         return;
       }
+      if (TTS.engine === 'piper') return TTS.nextPiper();
       if (TTS.engine === 'net') return TTS.nextNet();
       return TTS.nextLocal();
     },
@@ -601,6 +625,49 @@
       setTimeout(() => { if (!TTS.stopped) TTS.next(); }, 60);
     },
 
+    /* Piper 这一句失败：用在线朗读补读本句，但**不**永久禁用 Piper（不碰 FORCE_NET） */
+    useNetFrom(k) {
+      if (TTS.stopped) return;
+      TTS.engine = 'net';
+      TTS.i = k; TTS.at = -1;
+      if (TTS.onMode) TTS.onMode('net');
+      setTimeout(() => { if (!TTS.stopped) TTS.next(); }, 60);
+    },
+
+    /* —— 本地神经语音（Piper · VITS · 华研女声） —— 中文专属，质量最好、离线可用 */
+    nextPiper() {
+      const k = TTS.i, unit = TTS.q[k];
+      let marked = false;
+      const mark = () => {
+        if (marked || TTS.stopped || TTS.i !== k) return;
+        marked = true; TTS.at = k;
+        if (TTS.onStep) TTS.onStep(k, TTS.q.length, unit);
+      };
+      PiperTTS.speak(unit, {
+        rate: TTS.rate,
+        onStart: mark,
+        onEnd: () => {
+          if (TTS.i !== k) return;
+          TTS.i = k + 1; setTimeout(() => TTS.next(), TTS.stepGap || 220);
+        },
+        onError: () => {
+          if (TTS.i !== k) return;
+          // 本句改用在线朗读补读（不永久禁用 Piper）
+          let rMark = false;
+          const rm = () => { if (rMark || TTS.stopped || TTS.i !== k) return; rMark = true; TTS.at = k; if (TTS.onStep) TTS.onStep(k, TTS.q.length, unit); };
+          NetTTS.stop();
+          NetTTS.speak(unit, {
+            lang: 'zh', rate: TTS.rate, pitch: TTS.pitch,
+            onStart: rm,
+            onEnd: () => { if (TTS.i !== k) return; TTS.i = k + 1; setTimeout(() => TTS.next(), TTS.stepGap || 220); },
+            onError: () => { if (TTS.i !== k) return; TTS.i = k + 1; setTimeout(() => TTS.next(), 150); }
+          });
+          setTimeout(rm, 900);
+        }
+      });
+      setTimeout(mark, 900);   // 模型推理偏慢时，高亮别落后太多
+    },
+
     /* —— 在线朗读（<audio> 播放，任何浏览器都能出声） —— */
     nextNet() {
       const k = TTS.i, unit = TTS.q[k];
@@ -630,13 +697,15 @@
     pause() {
       if (TTS.stopped) return;
       TTS.paused = true;
-      if (TTS.engine === 'net') NetTTS.pause();
+      if (TTS.engine === 'piper') { if (window.PiperTTS) PiperTTS.pause(); }
+      else if (TTS.engine === 'net') NetTTS.pause();
       else { try { speechSynthesis.pause(); } catch (e) { } }
     },
     resume() {
       if (TTS.stopped) return;
       TTS.paused = false;
-      if (TTS.engine === 'net') NetTTS.resume();
+      if (TTS.engine === 'piper') { if (window.PiperTTS) PiperTTS.resume(); }
+      else if (TTS.engine === 'net') NetTTS.resume();
       else { try { speechSynthesis.resume(); } catch (e) { } }
     },
     toggle() { TTS.paused ? TTS.resume() : TTS.pause(); return TTS.paused; },
@@ -646,6 +715,7 @@
       clearTimeout(TTS.__wd);
       try { speechSynthesis.cancel(); } catch (e) { }
       NetTTS.stop();
+      if (window.PiperTTS) PiperTTS.stop();
     },
     get busy() { return !TTS.stopped; }
   };
@@ -961,6 +1031,25 @@
       document.body.style.overflow = '';
       TTS.stop();
     }
+  };
+
+  /* ---------- Piper 神经语音：加载进度与就绪提示（中文朗读「有感情」升级） ---------- */
+  window.KL = window.KL || {};
+  window.KL.onPiperProgress = function (p) {
+    if (!p || !p.total) return;
+    const pct = Math.min(100, Math.round((p.loaded || 0) / p.total * 100));
+    if (!window.__piperToastEl) {
+      window.__piperToastEl = document.createElement('div');
+      window.__piperToastEl.className = 'toast';
+      const box = document.getElementById('toast');
+      if (box) box.appendChild(window.__piperToastEl);
+    }
+    window.__piperToastEl.textContent = '正在准备有感情的朗读… ' + pct + '%';
+    if (pct >= 100) setTimeout(() => { if (window.__piperToastEl) { window.__piperToastEl.remove(); window.__piperToastEl = null; } }, 800);
+  };
+  window.KL.onPiperReady = function () {
+    if (window.__piperToastEl) { window.__piperToastEl.remove(); window.__piperToastEl = null; }
+    UI.toast('已升级为更有感情的朗读 🎙️', 2600);
   };
 
   window.DB = DB; window.UI = UI; window.SFX = SFX; window.Say = Say; window.TTS = TTS;
