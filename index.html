@@ -51,6 +51,12 @@
      ★ 资源都在 vendor/tesseract/（tesseract.min.js / worker.min.js / tesseract-core-*.wasm(.js) / lang/chi_sim.traineddata.gz），
         math.js 的 createWorker 用 workerPath/corePath/langPath 指到本地，故完全离线。 -->
 <script src="vendor/tesseract/tesseract.min.js"></script>
+<!-- ===== 本地神经语音（Piper · VITS · 华研女声）—— 给语文朗读「有感情」 =====
+     全部资源自托管在 vendor/piper/（模型 63MB + espeak 18MB + onnxruntime 10MB），浏览器内 WASM 推理，
+     断网也能用、零账号零密钥。ort.min.js 是 UMD（提供全局 window.ort），必须在本模块之前加载；
+     piper-tts.js 是 ES module（提供 window.PiperTTS），defer 执行，不影响首屏。 -->
+<script src="vendor/piper/ort/ort.min.js"></script>
+<script type="module" src="js/piper-tts.js"></script>
 <!-- ===== 程序逻辑 ===== -->
 <script src="js/core.js"></script>
 <script src="js/accounts.js"></script>
