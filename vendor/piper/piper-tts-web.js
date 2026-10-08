@@ -14,6 +14,9 @@ var _createPiperPhonemize, _modelConfig, _ort, _ortSession, _progressCallback, _
 const HF_BASE = "./vendor/piper";
 const ONNX_BASE = "./vendor/piper/ort/";
 const WASM_BASE = "./vendor/piper/piper_phonemize";
+// 模型过大（63MB）无法一次性上传到某些托管环境，被拆成多块（.p0/.p1/...）上传；
+// 这里拉全部块拼回完整 onnx 再推理。非分块环境把此值设为 1 即可走单文件。
+const MODEL_PARTS = 4;
 const PATH_MAP = {
   "ar_JO-kareem-low": "ar/ar_JO/kareem/low/ar_JO-kareem-low.onnx",
   "ar_JO-kareem-medium": "ar/ar_JO/kareem/medium/ar_JO-kareem-medium.onnx",
@@ -304,12 +307,61 @@ const _TtsSession = class _TtsSession {
     const path = PATH_MAP[this.voiceId];
     const modelConfigBlob = await getBlob(`${HF_BASE}/${path}.json`);
     __privateSet(this, _modelConfig, JSON.parse(await modelConfigBlob.text()));
-    const modelBlob = await getBlob(
-      `${HF_BASE}/${path}`,
-      __privateGet(this, _progressCallback)
-    );
+
+    // 模型加载：MODEL_PARTS===1 走单文件；>1 则逐块拉取 .p0/.p1/... 拼回完整 onnx。
+    // 原因：某些静态托管对单文件体积有上限（本仓库单文件 63MB 无法一次性上传），
+    // 拆成每块 ~16MB 后每块都远小于上限，可正常上传/下载；浏览器内再拼接成完整模型。
+    let modelBuffer;
+    if (MODEL_PARTS > 1) {
+      const progressCb = __privateGet(this, _progressCallback);
+      // 先 HEAD 各块拿体积，算总大小以便报告整体进度；HEAD 拿不到体积就退化为按块数计
+      const sizes = [];
+      let totalSize = 0;
+      await Promise.all(
+        Array.from({ length: MODEL_PARTS }, async (_, i) => {
+          try {
+            const h = await fetch(`${HF_BASE}/${path}.p${i}`, { method: "HEAD" });
+            sizes[i] = +(h.headers.get("Content-Length") ?? 0) || 0;
+          } catch {
+            sizes[i] = 0;
+          }
+        })
+      );
+      totalSize = sizes.reduce((s, x) => s + x, 0);
+      const parts = [];
+      let base = 0;
+      for (let i = 0; i < MODEL_PARTS; i++) {
+        const blob = await getBlob(
+          `${HF_BASE}/${path}.p${i}`,
+          (p) => {
+            if (!progressCb) return;
+            const loaded = totalSize > 0
+              ? base + p.loaded
+              : i + p.loaded / (p.total || 1);
+            const total = totalSize > 0 ? totalSize : MODEL_PARTS;
+            progressCb({ url: `${HF_BASE}/${path}`, loaded, total });
+          }
+        );
+        parts.push(new Uint8Array(await blob.arrayBuffer()));
+        base += sizes[i] || blob.size;
+      }
+      const total = parts.reduce((s, a) => s + a.length, 0);
+      const merged = new Uint8Array(total);
+      let off = 0;
+      for (const a of parts) {
+        merged.set(a, off);
+        off += a.length;
+      }
+      modelBuffer = merged.buffer;
+    } else {
+      const modelBlob = await getBlob(
+        `${HF_BASE}/${path}`,
+        __privateGet(this, _progressCallback)
+      );
+      modelBuffer = await modelBlob.arrayBuffer();
+    }
     __privateSet(this, _ortSession, await ort.InferenceSession.create(
-      await modelBlob.arrayBuffer(),
+      modelBuffer,
       { executionProviders: ["wasm"] }
     ));
   }
