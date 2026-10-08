@@ -160,17 +160,17 @@ window.MathMod = (function () {
     const photos = DB.get('photos', []);
     return `
       <div class="page-head"><span class="back" data-go="#/home">‹</span><h2>数学</h2></div>
-      <p class="big-title">把错题拍下来吧！</p>
-      <p class="sub-title">拍一张照片，框住这一道题，自动生成同类型练习题</p>
+      <p class="big-title">今天先来练一练！</p>
+      <p class="sub-title">口算打卡热热身，或者把错题拍下来针对性练习</p>
 
+      <button class="big-btn bg-p" data-go="#/ma/quiz"><span class="ico">📝</span>
+        <span>每日口算打卡<small>计时 10 题 · 自动评级 · 配声音</small></span></button>
       <button class="big-btn bg-b" id="bCam"><span class="ico">📷</span>
         <span>拍照上传<small>手机会打开相机</small></span></button>
       <button class="big-btn bg-c" id="bAlbum"><span class="ico">🖼️</span>
         <span>从相册选图<small>也可以选电脑里的截图</small></span></button>
       <button class="big-btn bg-o" data-go="#/ma/album"><span class="ico">🗂️</span>
         <span>我的错题本<small>共 ${photos.length} 张 · 按时间排列</small></span></button>
-      <button class="big-btn bg-p" data-go="#/ma/quiz"><span class="ico">📝</span>
-        <span>每日口算打卡<small>计时 10 题 · 自动评级 · 配声音</small></span></button>
 
       <div id="workBox"></div>
 
