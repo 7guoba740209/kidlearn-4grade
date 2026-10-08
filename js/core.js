@@ -287,9 +287,31 @@
   let FORCE_NET = false;       // 本机朗读试过但不出声 → 判为"有 API 但没引擎"
   let NET_ONLY = false;        // 强制走在线朗读（网址加 ?forceNet=1，便于排查/对比）
   try { NET_ONLY = /[?&]forceNet=1/.test(location.search); } catch (e) { }
+  let HAS_GOOD_LOCAL = false;  // 是否检测到"优质中文神经语音"（晓晓/云希/Neural 等）——有则优先本机，比 Piper 更有感情且零延迟
+  // 中文语音质量评分：命中神经语音/知名发音人则高分，命中不到也不强求（至少避开明显差的）
+  function scoreVoice(v) {
+    const n = (v.name || '') + ' ' + (v.lang || '');
+    let s = 0;
+    if (/Neural/i.test(n)) s += 100;                 // 神经语音（晓晓/云希/Google 神经）最优
+    if (/Xiaoxiao|Yunxi|晓晓|云希/i.test(n)) s += 60;
+    if (/Google|谷哥|普通话/i.test(n)) s += 40;
+    if (/Microsoft|微软/i.test(n)) s += 30;
+    if (/Huihui|慧慧|Yaoyao|瑶瑶|Tingting|婷婷|Mei|美/i.test(n)) s += 20; // 基础女声，够用
+    if (/zh[-_]CN/i.test(v.lang || '')) s += 10;     // 优先中国大陆口音
+    if (/Male|男/i.test(n)) s -= 5;
+    return s;
+  }
+  // 是否优先使用本机语音（配置 CN_PLAY.PREFER_LOCAL_VOICE，默认开）。仅当检测到优质本机语音才生效。
+  function preferLocal() {
+    const cp = (window.APP_CONFIG && APP_CONFIG.CN_PLAY) || {};
+    if (cp.PREFER_LOCAL_VOICE === false) return false;
+    return HAS_GOOD_LOCAL;
+  }
   function engine() {
     if (NET_ONLY || FORCE_NET) return 'net';
-    // 本地神经语音（Piper · VITS 华研女声）：质量最好、离线可用，中文专属，就绪后最高优先级
+    // 本机若装有优质中文神经语音（晓晓/云希/Neural 等），优先用它：比 Piper 更有感情、且流式零延迟不卡顿
+    if (preferLocal() && speechReady()) return 'local';
+    // 本地神经语音（Piper · VITS 华研女声）：离线可用、质量好，作为没有好本机语音时的兜底
     if (window.PiperTTS && window.PiperTTS.ready) return 'piper';
     if (speechReady()) return 'local';
     if (SPEECH_ABSENT) return 'net';
@@ -471,19 +493,7 @@
       const vs = (VOICES.length ? VOICES : refreshVoices())
         .filter(v => /zh/i.test(v.lang || '') || /Chinese/i.test(v.name || ''));
       if (!vs.length) return null;
-      const score = v => {
-        const n = (v.name || '') + ' ' + (v.lang || '');
-        let s = 0;
-        if (/Neural/i.test(n)) s += 100;                 // 神经语音（晓晓/云希/Google 神经）最优
-        if (/Xiaoxiao|Yunxi|晓晓|云希/i.test(n)) s += 60;
-        if (/Google|谷哥|普通话/i.test(n)) s += 40;
-        if (/Microsoft|微软/i.test(n)) s += 30;
-        if (/Huihui|慧慧|Yaoyao|瑶瑶|Tingting|婷婷|Mei|美/i.test(n)) s += 20; // 基础女声，够用
-        if (/zh[-_]CN/i.test(v.lang || '')) s += 10;     // 优先中国大陆口音
-        if (/Male|男/i.test(n)) s -= 5;
-        return s;
-      };
-      return vs.sort((a, b) => score(b) - score(a))[0];
+      return vs.sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
     },
 
     /* 按行切分，保留原始行结构（高亮要跟屏幕上的段落一一对应） */
@@ -536,6 +546,12 @@
       // 首次中文朗读：后台预热 Piper（不阻塞），加载完 engine() 会变 'piper'，自动切换到有感情朗读
       if (window.PiperTTS && !window.PiperTTS.ready && !window.PiperTTS.failed) {
         window.PiperTTS.ensure().catch(() => { });
+      }
+      // 预合成前几句：无论最终走 Piper 还是本机，先把开头几段算好，首句也能尽快顺下来
+      if (window.PiperTTS) {
+        for (let j = 0; j < Math.min(3, units.length); j++) {
+          try { window.PiperTTS.preload(units[j]); } catch (e) { }
+        }
       }
 
       const start = () => {
@@ -634,9 +650,13 @@
       setTimeout(() => { if (!TTS.stopped) TTS.next(); }, 60);
     },
 
-    /* —— 本地神经语音（Piper · VITS · 华研女声） —— 中文专属，质量最好、离线可用 */
+    /* —— 本地神经语音（Piper · VITS · 华研女声） —— 中文专属，质量好、离线可用 */
     nextPiper() {
       const k = TTS.i, unit = TTS.q[k];
+      // 后台预合成后面两句：播当前句的同时把下一句算好，读完后立即续上，消除"断断续续"
+      for (let j = k + 1; j <= k + 2 && j < TTS.q.length; j++) {
+        try { if (window.PiperTTS) PiperTTS.preload(TTS.q[j]); } catch (e) { }
+      }
       let marked = false;
       const mark = () => {
         if (marked || TTS.stopped || TTS.i !== k) return;
@@ -648,7 +668,7 @@
         onStart: mark,
         onEnd: () => {
           if (TTS.i !== k) return;
-          TTS.i = k + 1; setTimeout(() => TTS.next(), TTS.stepGap || 220);
+          TTS.i = k + 1; setTimeout(() => TTS.next(), 20);   // 极小间隙：下一句已预合成，几乎无缝
         },
         onError: () => {
           if (TTS.i !== k) return;
@@ -723,6 +743,11 @@
   function refreshVoices() {
     if (!speechReady()) return VOICES;
     try { VOICES = speechSynthesis.getVoices() || []; } catch (e) { VOICES = []; }
+    // 判定是否存在"优质中文神经语音"：命中 Neural / 晓晓 / 云希 等 → 优先本机朗读（更有感情）
+    const best = VOICES
+      .filter(v => /zh/i.test(v.lang || '') || /Chinese/i.test(v.name || ''))
+      .sort((a, b) => scoreVoice(b) - scoreVoice(a))[0];
+    HAS_GOOD_LOCAL = !!(best && scoreVoice(best) >= 60);
     return VOICES;
   }
   function initVoices() {
