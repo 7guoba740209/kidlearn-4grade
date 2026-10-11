@@ -453,15 +453,46 @@ window.English = (function () {
       Accounts.recordWord(G.cur.en, false);
       const slots = UI.$$('#slots .slot');
       slots.forEach(s => s.classList.add('bad'));
-      UI.toast('拼错啦，正确拼写是 ' + G.cur.en);
       Say.en(G.cur.en, .7);
-      setTimeout(() => {
-        if (G.mode !== 'timed') { G.i++; step(true); }
-        else step(false);
-      }, 1700);
+      if (G.mode !== 'timed') {
+        showWrongAnswer();              // 显眼展示正确答案 + 「继续」按钮，手动进下一题
+      } else {
+        UI.toast('拼错啦，正确拼写是 ' + G.cur.en);
+        setTimeout(() => step(false), 1700);
+      }
     }
     const cb = document.getElementById('combo');
     if (cb) cb.textContent = G.streak >= 2 ? '🔥 连对 ' + G.streak + ' 个！' : '';
+  }
+
+  // 答错后：把整块题目区替换成「显眼的正确答案」面板，点「继续」才进下一题
+  // 仅用于非限时模式（拼词游戏 / 听音拼写）；限时模式仍自动跳（见 judge 的 else 分支）
+  function showWrongAnswer() {
+    const card = document.querySelector('#gameBox .spell-card');
+    if (!card || !G) { advanceAfterWrong(); return; }
+    const body = card.querySelector('.spell-body');
+    if (!body) { advanceAfterWrong(); return; }
+    const correct = G.cur.en, zh = G.cur.zh || '';
+    body.innerHTML = `
+      <div class="spell-answer">
+        <div class="sa-flag">✗ 这一题拼错啦</div>
+        <div class="sa-label">正确答案</div>
+        <div class="sa-word">${UI.esc(correct)}</div>
+        <button class="mini-spk sa-say" id="saSay">🔊 听一听</button>
+        ${zh ? `<div class="sa-zh">${UI.esc(zh)}</div>` : ''}
+        <button class="btn bg-g sa-next" id="saNext"><span>➡️</span>继续，下一个单词</button>
+      </div>`;
+    const say = document.getElementById('saSay');
+    if (say) say.onclick = (e) => { e.stopPropagation(); Say.en(correct); };
+    document.getElementById('saNext').onclick = (e) => { e.stopPropagation(); advanceAfterWrong(); };
+    if (typeof fitGame === 'function') setTimeout(fitGame, 40);
+  }
+
+  // 答错后进入下一题：非限时模式走列表下一词，限时模式循环下一词
+  function advanceAfterWrong() {
+    if (!G) return;
+    if (G.mode !== 'timed') { G.i++; step(true); }
+    else step(false);
   }
 
   function startTimer() {
