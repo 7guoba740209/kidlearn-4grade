@@ -312,7 +312,18 @@ window.English = (function () {
     }
   }
 
-  function step(autoSpeak) {
+  // 非限时模式随机抽词（避开当前词，避免连续两次抽到同一词）
+  function pickRandomWord() {
+    const pool = G.words;
+    if (!pool || pool.length <= 1) return pool && pool[0];
+    let w, tries = 0;
+    do { w = pool[Math.floor(Math.random() * pool.length)]; tries++; }
+    while (w === G.cur && tries < 16);
+    return w;
+  }
+
+  // sameWord=true 时重出当前这一个单词（答错循环用）；否则按模式抽词
+  function step(autoSpeak, sameWord) {
     const box = document.getElementById('gameBox');
     if (!box || !G) return;
     if (G.mode !== 'timed' && G.i >= G.words.length) return finish(false);
@@ -323,7 +334,7 @@ window.English = (function () {
       ? { en: String(forced), zh: '（测试词）' }
       : (G.mode === 'timed'
         ? G.words[Math.floor(Math.random() * G.words.length)]
-        : G.words[G.i]);
+        : (sameWord && G.cur ? G.cur : pickRandomWord()));
 
     const letters = w.en.toLowerCase().split('');
     const extra = ['a', 'e', 'i', 'o', 'u', 'r', 's', 't', 'n', 'l', 'm', 'c', 'd', 'p', 'h', 'g'];
@@ -334,14 +345,14 @@ window.English = (function () {
     G.cur = w; G.letters = pool; G.built = []; G.used = []; G.hinted = false;
 
     document.getElementById('gProg').textContent =
-      G.mode === 'timed' ? `✅ ${G.right} 个` : `${G.i + 1} / ${G.words.length}`;
+      G.mode === 'timed' ? `✅ ${G.right} 个` : `✅ 已会 ${G.i}/${G.words.length}`;
     document.getElementById('gTimer').style.display = G.mode === 'timed' ? 'block' : 'none';
 
     box.innerHTML = `
       <div class="card spell-card">
         <div class="spell-title-row">
           <div class="spell-title">${G.mode === 'scramble' ? '拼词游戏' : '听音拼写'}</div>
-          <div class="spell-progress">${G.i + 1} / ${G.words.length}</div>
+          <div class="spell-progress">已会 ${G.i} / ${G.words.length}</div>
         </div>
         <div class="spell-sub">${G.mode === 'scramble' ? '拼出这个单词 →' : '🎧 听一听，拼出这个单词'}</div>
         <div class="spell-body">
@@ -387,7 +398,7 @@ window.English = (function () {
       Say.en(w.en); UI.toast('正确答案是 ' + w.en);
       G.streak = 0;
       if (G.mode === 'timed') setTimeout(() => step(false), 900);
-      else setTimeout(() => { G.i++; step(true); }, 1100);
+      else setTimeout(() => { step(true); }, 1100);   // 跳过：换一个随机词，不计入已完成
     };
 
     UI.$$('#tiles .tile').forEach((t, i) => t.onclick = () => tapLetter({ idx: i }));
@@ -488,10 +499,10 @@ window.English = (function () {
     if (typeof fitGame === 'function') setTimeout(fitGame, 40);
   }
 
-  // 答错后进入下一题：非限时模式走列表下一词，限时模式循环下一词
+  // 答错后：非限时模式重出同一个单词（循环直到答对），限时模式循环下一词
   function advanceAfterWrong() {
     if (!G) return;
-    if (G.mode !== 'timed') { G.i++; step(true); }
+    if (G.mode !== 'timed') step(true, true);
     else step(false);
   }
 
