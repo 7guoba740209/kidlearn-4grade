@@ -673,6 +673,12 @@ button{font-family:var(--font);cursor:pointer;border:none;background:none;color:
 .quiz-fb{min-height:34px;text-align:center;font-size:27px;font-weight:900}
 .quiz-fb.ok{color:var(--green-d)}
 .quiz-fb.no{color:#C62B55}
+/* 软键盘弹出：压缩题目区，令题目+输入框整体上移、都落在键盘上方 */
+.quiz-card.kb .quiz-type{margin-bottom:4px}
+.quiz-card.kb .quiz-q{font-size:30px;margin:2px 0 8px}
+.quiz-card.kb .quiz-input{min-height:58px;font-size:32px}
+.quiz-card.kb .quiz-submit{min-height:58px;font-size:22px}
+.quiz-card.kb .quiz-fb{min-height:24px;font-size:20px}
 .quiz-next{width:100%}
 .quiz-best{text-align:center;color:var(--ink2);font-size:15px;margin:14px 4px 0}
 .rating{border-radius:18px;padding:14px 16px;box-shadow:var(--shadow)}
