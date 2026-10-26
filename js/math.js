@@ -324,13 +324,8 @@ window.MathMod = (function () {
       </div>`;
   }
 
-  /* ---------------- 每日口算打卡（计时 · 10题选择题 · 评级 · 打卡） ---------------- */
+  /* ---------------- 每日口算打卡（计时 · 10题填空题 · 评级 · 打卡） ---------------- */
   function rnd(a, b) { return Math.floor(Math.random() * (b - a + 1)) + a; }
-  function swapDigits(n) {
-    if (n < 10) return n;
-    const u = n % 10, t = Math.floor(n / 10) % 10, rest = Math.floor(n / 100);
-    return rest * 100 + u * 10 + t;
-  }
   // 加法：三位数 + 两位数；减法：三位数 − 两位数（必为正）；乘法：两位 × 一位；除法：两位 ÷ 一位（整除）
   function makeAdd() { const a = rnd(100, 999), b = rnd(10, 99); return { q: a + ' + ' + b, a: a + b, type: '加' }; }
   function makeSub() { const a = rnd(100, 999), b = rnd(10, 99); return { q: a + ' − ' + b, a: a - b, type: '减' }; }
@@ -340,23 +335,12 @@ window.MathMod = (function () {
     while (prod < 10) { q = rnd(3, 9); prod = d * q; }   // 保证被除数是两位数
     return { q: prod + ' ÷ ' + d, a: q, type: '除' };
   }
-  // 4 个选项：1 正确 + 3 个贴近的常见错误答案（±1/±10/交换个位十位等）
-  function makeOptions(ans) {
-    const cands = [ans + 1, ans - 1, ans + 10, ans - 10, ans + 2, ans - 2, swapDigits(ans), ans * 2, ans + 5, ans - 5, ans + 20];
-    const pool = [];
-    cands.forEach(c => { if (c >= 0 && c !== ans && pool.indexOf(c) < 0) pool.push(c); });
-    while (pool.length < 3) { const x = ans + rnd(1, 30); if (x !== ans && pool.indexOf(x) < 0) pool.push(x); }
-    for (let i = pool.length - 1; i > 0; i--) { const j = rnd(0, i); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
-    const opts = pool.slice(0, 3); opts.push(ans);
-    for (let i = opts.length - 1; i > 0; i--) { const j = rnd(0, i); const t = opts[i]; opts[i] = opts[j]; opts[j] = t; }
-    return opts;
-  }
   function buildQuiz() {
     const makers = [makeAdd, makeSub, makeMul, makeDiv];
     const qs = makers.map(m => m());                       // 4 种题型各保证出现
     for (let i = qs.length; i < 10; i++) qs.push(makers[rnd(0, 3)]());   // 再补随机到 10 题
     for (let i = qs.length - 1; i > 0; i--) { const j = rnd(0, i); const t = qs[i]; qs[i] = qs[j]; qs[j] = t; }  // 打乱
-    qs.forEach((q, i) => { q.no = i + 1; q.opts = makeOptions(q.a); });
+    qs.forEach((q, i) => { q.no = i + 1; });
     return qs;
   }
   // 按"答对几题"给出 10 种不同鼓励（10 题时 right 即档位；其他题量就近映射）
@@ -396,7 +380,7 @@ window.MathMod = (function () {
     const best = DB.get('quiz_best_' + dayKey(), null);
     return `
       <div class="page-head"><span class="back" data-go="#/ma">‹</span><h2>每日口算打卡</h2></div>
-      <p class="sub-title">📅 ${dateLabel()} · 10 道选择题，计时开始！</p>
+      <p class="sub-title">📅 ${dateLabel()} · 10 道填空题，输入答案，计时开始！</p>
       <div class="quiz-top">
         <span class="quiz-pill">⏱️ <b id="qTimer">00:00</b></span>
         <span class="quiz-pill">第 <b id="qProg">1</b> / 10 题</span>
@@ -404,7 +388,7 @@ window.MathMod = (function () {
       <div class="card quiz-card">
         <div class="quiz-type" id="qType">加法</div>
         <div class="quiz-q" id="qText">—</div>
-        <div class="opt-grid" id="qOpts"></div>
+        <div class="quiz-answer" id="qOpts"></div>
         <button class="btn bg-g quiz-next" id="qNext" style="display:none;margin-top:16px">下一题 →</button>
       </div>
       <div id="qBest" class="quiz-best">${best ? '今日最好：' + best.score + ' 分（' + fmtTime(best.time) + '）' : '今天还没打卡，加油拿下第一个成绩！'}</div>`;
@@ -426,29 +410,45 @@ window.MathMod = (function () {
       elType.textContent = { '加': '➕ 加法', '减': '➖ 减法', '乘': '✖️ 乘法', '除': '➗ 除法' }[q.type] || q.type;
       elText.textContent = q.q + ' = ?';
       elProg.textContent = (qi + 1);
-      elOpts.innerHTML = q.opts.map((o, i) => `<button class="opt" data-i="${i}" data-v="${o}">${o}</button>`).join('');
+      elOpts.innerHTML = `
+        <div class="quiz-input-row">
+          <input class="quiz-input" id="qInput" type="text" inputmode="numeric" autocomplete="off"
+                 placeholder="在这里输入答案" maxlength="9">
+          <button class="btn bg-g quiz-submit" id="qSubmit">确定</button>
+        </div>
+        <div class="quiz-fb" id="qFb"></div>`;
       elNext.style.display = 'none';
-      UI.$$('.opt', elOpts).forEach(btn => btn.onclick = () => choose(btn, q));
+      const input = UI.$('#qInput', elOpts), submit = UI.$('#qSubmit', elOpts);
+      submit.onclick = submitAnswer;
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') submitAnswer(); });
+      setTimeout(() => { try { input.focus(); } catch (e) {} }, 60);   // 自动聚焦，弹起数字键盘
     }
-    function choose(btn, q) {
+    function submitAnswer() {
       if (locked) return;
+      const input = UI.$('#qInput', elOpts), submit = UI.$('#qSubmit', elOpts), fb = UI.$('#qFb', elOpts);
+      const raw = (input.value || '').trim();
+      if (raw === '') { input.focus(); UI.toast('先输入答案，再点确定哦'); return; }
+      const val = Number(raw);
+      if (!Number.isFinite(val)) { input.focus(); UI.toast('答案只能填数字哦'); return; }
       locked = true;
       SFX.tap();
-      const val = Number(btn.getAttribute('data-v'));
+      const q = qs[qi];
       const correct = (val === q.a);
-      UI.$$('.opt', elOpts).forEach(b => {
-        const v = Number(b.getAttribute('data-v'));
-        b.classList.add('done');
-        if (v === q.a) b.classList.add('ok');
-        else if (b === btn) b.classList.add('no');
-        b.onclick = null;
-      });
-      if (correct) { right++; SFX.right(); } else { SFX.wrong(); }
-      // 选完自动跳下一题：对的短停看绿、错的稍久让孩子看清正确答案标红；末题自动看成绩
+      input.disabled = true; submit.disabled = true;
+      if (correct) {
+        right++; SFX.right();
+        input.classList.add('ok');
+        if (fb) { fb.textContent = '✅ 答对啦，真棒！'; fb.className = 'quiz-fb ok'; }
+      } else {
+        SFX.wrong();
+        input.classList.add('no');
+        if (fb) { fb.textContent = '❌ 正确答案是 ' + q.a; fb.className = 'quiz-fb no'; }
+      }
+      // 提交后自动跳下一题：对的短停庆祝、错的稍久让孩子看清正确答案；也可直接点「下一题」
       elNext.textContent = (qi >= qs.length - 1) ? '看成绩 🏁' : '下一题 →';
       elNext.style.display = 'flex';
       clearTimeout(advanceTimer);
-      advanceTimer = setTimeout(goNext, correct ? 650 : 1150);
+      advanceTimer = setTimeout(goNext, correct ? 900 : 2200);
     }
     function goNext() {
       if (qi >= qs.length - 1) { finish(); return; }
