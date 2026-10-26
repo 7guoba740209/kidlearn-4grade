@@ -402,6 +402,39 @@ window.MathMod = (function () {
           elType = UI.$('#qType', view), elText = UI.$('#qText', view),
           elOpts = UI.$('#qOpts', view), elNext = UI.$('#qNext', view);
 
+    /* ---- 软键盘避让：弹数字键盘时把题目“顶上来”，保证题目和输入框都露出来 ---- */
+    let _vvBase = window.innerHeight, _kbOpen = false, _vvCleanup = null;
+    function applyLift(kb) {
+      const v = document.getElementById('view');
+      const card = document.querySelector('#view .quiz-card');
+      if (!v || !card) return;
+      card.classList.add('kb');                                   // 压缩题目区
+      v.style.paddingBottom = (74 + kb) + 'px';                   // 底部留出键盘高度的滚动空间
+      const q = document.getElementById('qText');
+      if (q && q.scrollIntoView) { try { q.scrollIntoView({ block: 'start' }); } catch (e) {} }  // 题目滚到顶部
+    }
+    function removeLift() {
+      const v = document.getElementById('view');
+      const card = document.querySelector('#view .quiz-card');
+      if (v) v.style.paddingBottom = '';
+      if (card) card.classList.remove('kb');
+    }
+    const vv = window.visualViewport;
+    if (vv) {
+      const onVV = () => {
+        const kb = _vvBase - vv.height;
+        if (kb > 90 && !_kbOpen) { _kbOpen = true; applyLift(kb); }                 // 键盘刚弹出
+        else if (kb > 90 && _kbOpen) {                                              // 键盘继续变高：只更新留白，不重复滚动
+          const v = document.getElementById('view');
+          if (v) v.style.paddingBottom = (74 + kb) + 'px';
+        } else if (kb <= 90 && _kbOpen) { _kbOpen = false; removeLift(); }          // 键盘收起
+        if (!_kbOpen) _vvBase = Math.max(_vvBase, vv.height);                       // 收起后刷新基准高度
+      };
+      vv.addEventListener('resize', onVV);
+      vv.addEventListener('scroll', onVV);
+      _vvCleanup = () => { vv.removeEventListener('resize', onVV); vv.removeEventListener('scroll', onVV); };
+    }
+
     timer = setInterval(() => { if (elTimer) elTimer.textContent = fmtTime(Date.now() - started); }, 250);
 
     function renderQ() {
@@ -458,6 +491,8 @@ window.MathMod = (function () {
 
     function finish() {
       if (timer) clearInterval(timer);
+      if (_vvCleanup) _vvCleanup();        // 注销键盘避让监听
+      removeLift();                        // 复位题目压缩与底部留白
       const total = qs.length, pct = Math.round(right / total * 100), used = Date.now() - started;
       const r = ratingOf(right, total);
       // 单日最好：按"分数优先、同分看用时"记录
